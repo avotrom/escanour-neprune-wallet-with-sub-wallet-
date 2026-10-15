@@ -1,0 +1,26 @@
+Escanour Neptune Wallet
+Copyright (c) 2026 avotrom. All rights reserved. See LICENSE.
+
+Third-party notices
+-------------------
+
+This product includes code adapted from neptune-core
+(https://github.com/Neptune-Crypto/neptune-core), Copyright Triton Software AG
+and contributors, licensed under the Apache License, Version 2.0
+(https://www.apache.org/licenses/LICENSE-2.0). These files were modified:
+
+- crates/light-core/src/sync.rs: per-block wallet update, adapted from
+  neptune-core/src/state/wallet/wallet_state.rs
+  (process_inputs_and_outputs_maintain_mps)
+- crates/light-core/src/jobs.rs: ProofCollection claim construction, adapted
+  from neptune-consensus/src/transaction/validity/proof_collection.rs
+- patches/neptune-wasm.patch: modifications to neptune-consensus and
+  neptune-primitives for the wasm32-unknown-unknown target
+
+The compiled extension also contains neptune-core and other open-source Rust
+crates (for example qrcode and rqrr, MIT or Apache-2.0). Their license texts
+are copied into extension/THIRD_PARTY/ by scripts/build.sh. Before publishing
+the extension in a store, generate a complete list, for example with
+`cargo about generate`.
+
+No code from neptune-wallet-app is used (that repository has no license file).

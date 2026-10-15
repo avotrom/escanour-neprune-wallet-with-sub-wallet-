@@ -1,0 +1,213 @@
+diff --git a/neptune-consensus/Cargo.toml b/neptune-consensus/Cargo.toml
+index 360398b..818ffa3 100644
+--- a/neptune-consensus/Cargo.toml
++++ b/neptune-consensus/Cargo.toml
+@@ -68,15 +68,6 @@ serde_json = "1.0"
+ strum = { version = "0.27.0", features = ["derive"] }
+ tasm-lib = "9.0.0"
+ thiserror = "1.0.65"
+-tokio = { version = "1.47", features = [
+-    "io-util",
+-    "macros",
+-    "process",
+-    "rt",
+-    "rt-multi-thread",
+-    "sync",
+-    "time",
+-] }
+ tracing = "0.1"
+ 
+ neptune-job-queue = { version = "0.19.0", path = "../neptune-job-queue" }
+@@ -131,3 +122,19 @@ harness = false
+ 
+ [lints]
+ workspace = true
++
++# wasm32 support (neptune-light-wallet patch): tokio refuses `process` and
++# `rt-multi-thread` on wasm32, so those features are native-only.
++[target.'cfg(not(target_arch = "wasm32"))'.dependencies]
++tokio = { version = "1.47", features = [
++    "io-util",
++    "macros",
++    "process",
++    "rt",
++    "rt-multi-thread",
++    "sync",
++    "time",
++] }
++
++[target.'cfg(target_arch = "wasm32")'.dependencies]
++tokio = { version = "1.47", features = ["io-util", "macros", "rt", "sync", "time"] }
+diff --git a/neptune-consensus/src/lib.rs b/neptune-consensus/src/lib.rs
+index 5531955..885f05b 100644
+--- a/neptune-consensus/src/lib.rs
++++ b/neptune-consensus/src/lib.rs
+@@ -36,6 +36,9 @@ pub mod prelude;
+ ///  crate::macros::log_scope_duration,
+ #[derive(Debug, Clone)]
+ pub struct ScopeDurationLogger<'a> {
++    // `Instant::now()` panics on wasm32-unknown-unknown (no clock), so the
++    // logger is a no-op there.
++    #[cfg(not(target_arch = "wasm32"))]
+     start: Instant,
+     description: &'a str,
+     log_slow_fn_threshold: Option<f64>,
+@@ -45,6 +48,7 @@ impl<'a> ScopeDurationLogger<'a> {
+     #[track_caller]
+     pub fn new(description: &'a str, log_slow_fn_threshold: Option<f64>) -> Self {
+         Self {
++            #[cfg(not(target_arch = "wasm32"))]
+             start: Instant::now(),
+             description,
+             log_slow_fn_threshold,
+@@ -76,6 +80,14 @@ impl<'a> ScopeDurationLogger<'a> {
+ 
+ impl Drop for ScopeDurationLogger<'_> {
+     fn drop(&mut self) {
++        #[cfg(not(target_arch = "wasm32"))]
++        self.log_elapsed();
++    }
++}
++
++impl ScopeDurationLogger<'_> {
++    #[cfg(not(target_arch = "wasm32"))]
++    fn log_elapsed(&self) {
+         let elapsed = self.start.elapsed();
+         let duration = elapsed.as_secs_f64();
+ 
+diff --git a/neptune-consensus/src/proof_abstractions/tasm/prover_job.rs b/neptune-consensus/src/proof_abstractions/tasm/prover_job.rs
+index 6051df9..a119964 100644
+--- a/neptune-consensus/src/proof_abstractions/tasm/prover_job.rs
++++ b/neptune-consensus/src/proof_abstractions/tasm/prover_job.rs
+@@ -78,6 +78,10 @@ pub enum VmProcessError {
+     #[error("stdin unavailable")]
+     StdinUnavailable,
+ 
++    /// Only produced on wasm32, where proving runs in-process.
++    #[error("in-process prover failed: {0}")]
++    InProcessProverFailed(String),
++
+     #[error("result deserialization failed")]
+     ResultDeserializationFailed(#[from] Box<bincode::ErrorKind>),
+ 
+@@ -374,6 +378,7 @@ impl ProverJob {
+     ///
+     /// The process result is only read if exit code is 0.
+     /// A non-zero exit code or no code results in an error.
++    #[cfg(not(target_arch = "wasm32"))]
+     pub async fn prove_out_of_process(
+         &self,
+         mut rx: JobCancelReceiver,
+@@ -493,6 +498,27 @@ impl ProverJob {
+         }
+     }
+ 
++    /// wasm32 variant: there are no child processes in a browser, so the
++    /// proof is produced in-process. Cancellation is checked only before
++    /// starting, because the prover cannot be interrupted midway.
++    #[cfg(target_arch = "wasm32")]
++    pub async fn prove_out_of_process(
++        &self,
++        rx: JobCancelReceiver,
++    ) -> Result<ProverProcessCompletion, VmProcessError> {
++        if rx.has_changed().unwrap_or(false) {
++            return Ok(ProverProcessCompletion::Cancelled);
++        }
++        let proof = tasm_lib::triton_vm::prove(
++            tasm_lib::triton_vm::stark::Stark::default(),
++            &self.claim,
++            self.program.clone(),
++            self.nondeterminism.clone(),
++        )
++        .map_err(|e| VmProcessError::InProcessProverFailed(e.to_string()))?;
++        Ok(ProverProcessCompletion::Finished(proof.into()))
++    }
++
+     /// Obtains path to `neptune-prover` executable for generating Triton VM
+     /// proofs.
+     ///
+@@ -506,6 +532,7 @@ impl ProverJob {
+     /// Returns the sibling path when no candidate exists, so that the failure
+     /// surfaces at spawn time as [`VmProcessError::CouldNotLaunchProver`],
+     /// naming the path that was tried.
++    #[cfg(not(target_arch = "wasm32"))]
+     fn path_to_neptune_prover() -> Result<PathBuf, VmProcessError> {
+         // Handle the ".exe" extension for Windows automatically
+         let extension = std::env::consts::EXE_EXTENSION;
+@@ -529,6 +556,7 @@ impl ProverJob {
+     }
+ 
+     /// The directories to look for `neptune-prover` in, nearest first.
++    #[cfg(not(target_arch = "wasm32"))]
+     fn prover_candidates(current_exe: &Path, bin_name: &str) -> Vec<PathBuf> {
+         /// Enough to climb from `target/<profile>/build/<pkg>/<hash>/out/` up
+         /// to `target/<profile>/`, with a little room to spare. Bounded so that
+@@ -592,6 +620,7 @@ impl Job for ProverJob {
+ }
+ 
+ // future cleanup: remove this module, when possible.
++#[cfg(not(target_arch = "wasm32"))]
+ mod process_util {
+ 
+     use std::process::Output;
+diff --git a/neptune-consensus/src/proof_abstractions/triton_vm_job_queue.rs b/neptune-consensus/src/proof_abstractions/triton_vm_job_queue.rs
+index e33f6df..c5a5153 100644
+--- a/neptune-consensus/src/proof_abstractions/triton_vm_job_queue.rs
++++ b/neptune-consensus/src/proof_abstractions/triton_vm_job_queue.rs
+@@ -82,7 +82,13 @@ fn worker_runtime() -> &'static tokio::runtime::Runtime {
+     use std::sync::OnceLock;
+     static RUNTIME: OnceLock<tokio::runtime::Runtime> = OnceLock::new();
+     RUNTIME.get_or_init(|| {
+-        tokio::runtime::Builder::new_multi_thread()
++        #[cfg(not(target_arch = "wasm32"))]
++        let mut builder = tokio::runtime::Builder::new_multi_thread();
++        // wasm32 has no threads; the light wallet never uses this queue but the
++        // code must still compile.
++        #[cfg(target_arch = "wasm32")]
++        let mut builder = tokio::runtime::Builder::new_current_thread();
++        builder
+             .enable_all()
+             .thread_name("triton-vm-job-queue")
+             .build()
+diff --git a/neptune-primitives/Cargo.toml b/neptune-primitives/Cargo.toml
+index e7cbd36..effb303 100644
+--- a/neptune-primitives/Cargo.toml
++++ b/neptune-primitives/Cargo.toml
+@@ -25,7 +25,6 @@ test-helpers = ["arbitrary-impls"]
+ [dependencies]
+ anyhow = "1.0"
+ chrono = "0.4"
+-directories = "5.0"
+ get-size2 = { version = "0.9", features = ["derive"] }
+ itertools = "0.14"
+ num-bigint = { version = "0.4", features = ["serde"] }
+@@ -35,7 +34,6 @@ serde = { version = "1.0", features = ["derive"] }
+ strum = { version = "0.27.0", features = ["derive"] }
+ tasm-lib = "9.0.0"
+ thiserror = "1.0.65"
+-tokio = { version = "1.47", features = ["fs"] }
+ 
+ # optional: required for unit tests and the arbitrary-impls feature.
+ # duplicated (non-optional) in [dev-dependencies] for this crate's own tests.
+@@ -54,3 +52,9 @@ test-strategy = "0.3"
+ 
+ [lints]
+ workspace = true
++
++# wasm32 support (neptune-light-wallet patch): node data directories need a
++# filesystem, which wasm32-unknown-unknown does not have.
++[target.'cfg(not(target_arch = "wasm32"))'.dependencies]
++directories = "5.0"
++tokio = { version = "1.47", features = ["fs"] }
+diff --git a/neptune-primitives/src/lib.rs b/neptune-primitives/src/lib.rs
+index b09f00f..049744b 100644
+--- a/neptune-primitives/src/lib.rs
++++ b/neptune-primitives/src/lib.rs
+@@ -12,6 +12,7 @@ pub use tasm_lib::prelude::twenty_first;
+ pub mod announcement_flag;
+ pub mod block_height;
+ pub mod block_selector;
++#[cfg(not(target_arch = "wasm32"))]
+ pub mod data_directory;
+ pub mod difficulty_control;
+ pub mod mast_hash;

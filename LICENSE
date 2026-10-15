@@ -1,0 +1,23 @@
+Escanour Neptune Wallet
+Copyright (c) 2026 avotrom. All rights reserved.
+
+This software and its source code are proprietary. No license is granted to
+anyone to use, copy, modify, merge, publish, distribute, sublicense, sell, or
+create derivative works from this software, in whole or in part, without the
+prior written permission of the copyright holder.
+
+Viewing this source code (for example, in a repository you were given access
+to) does not grant any right to use it.
+
+Third-party components keep their own licenses and are not covered by the
+paragraphs above. See NOTICE. In particular, parts adapted from neptune-core
+remain under the Apache License, Version 2.0, for the portions taken from it.
+
+THIS SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+COPYRIGHT HOLDER BE LIABLE FOR ANY CLAIM, DAMAGES, LOSS OF FUNDS OR OTHER
+LIABILITY ARISING FROM THE USE OF THIS SOFTWARE.
+
+For permission requests, contact the copyright holder through
+https://github.com/avotrom.

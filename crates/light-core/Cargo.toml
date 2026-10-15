@@ -1,0 +1,33 @@
+[package]
+name = "light-core"
+description = "Light-client wallet logic for Neptune Cash: sync, scan, membership proofs, transaction building"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+publish.workspace = true
+
+[dependencies]
+neptune-consensus.workspace = true
+neptune-mutator-set.workspace = true
+neptune-primitives.workspace = true
+neptune-wallet.workspace = true
+neptune-rpc-api.workspace = true
+
+anyhow.workspace = true
+bincode.workspace = true
+itertools.workspace = true
+num-traits = "0.2"
+serde.workspace = true
+serde_json.workspace = true
+
+# Libsodium-compatible sealed boxes for the experimental notification wrapper.
+crypto_box = { version = "0.9.1", features = ["seal"] }
+x25519-dalek = "2.0"
+rand_core = { version = "0.6", features = ["getrandom"] }
+bech32 = "0.9"
+sha2 = "0.10"
+zeroize = "1.8"
+
+[dev-dependencies]
+neptune-wallet = { workspace = true, features = ["test-helpers"] }
+tokio = { version = "1", features = ["macros", "rt-multi-thread"] }

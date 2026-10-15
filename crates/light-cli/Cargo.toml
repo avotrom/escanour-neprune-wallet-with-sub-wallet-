@@ -1,0 +1,18 @@
+[package]
+name = "light-cli"
+description = "Native test harness for light-core: sync, balance, address and send against a public node, without a browser."
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+publish.workspace = true
+
+[[bin]]
+name = "neptune-light"
+path = "src/main.rs"
+
+[dependencies]
+light-core = { path = "../light-core" }
+anyhow.workspace = true
+serde_json.workspace = true
+ureq = "2.10"
+rayon = "1.10"

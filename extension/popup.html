@@ -1,0 +1,1062 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Escanour Neptune Wallet</title>
+    <link rel="stylesheet" href="popup.css" />
+    <script src="lib/early.js"></script>
+  </head>
+  <body>
+    <!-- Icon set, 24-unit grid, 1.8 stroke. Used with <use href="#i-…">. -->
+    <svg class="sprite" aria-hidden="true">
+      <symbol id="i-send" viewBox="0 0 24 24"><path d="M12 19V5M6 11l6-6 6 6"/></symbol>
+      <symbol id="i-receive" viewBox="0 0 24 24"><path d="M12 5v14M6 13l6 6 6-6"/></symbol>
+      <symbol id="i-scan" viewBox="0 0 24 24"><path d="M4 8V6a2 2 0 0 1 2-2h2M16 4h2a2 2 0 0 1 2 2v2M20 16v2a2 2 0 0 1-2 2h-2M8 20H6a2 2 0 0 1-2-2v-2"/><rect x="8" y="8" width="8" height="8" rx="1.5"/></symbol>
+      <symbol id="i-history" viewBox="0 0 24 24"><circle cx="12" cy="12" r="8"/><path d="M12 8v4l2.5 2.5"/></symbol>
+      <symbol id="i-lock" viewBox="0 0 24 24"><rect x="5" y="11" width="14" height="10" rx="2.5"/><path d="M8 11V8a4 4 0 0 1 8 0v3"/></symbol>
+      <symbol id="i-gear" viewBox="0 0 24 24"><path d="M10.3 3.1a1.8 1.8 0 0 1 3.4 0l.3.9a1.8 1.8 0 0 0 2.5 1l.8-.4a1.8 1.8 0 0 1 2.4 2.4l-.4.8a1.8 1.8 0 0 0 1 2.5l.9.3a1.8 1.8 0 0 1 0 3.4l-.9.3a1.8 1.8 0 0 0-1 2.5l.4.8a1.8 1.8 0 0 1-2.4 2.4l-.8-.4a1.8 1.8 0 0 0-2.5 1l-.3.9a1.8 1.8 0 0 1-3.4 0l-.3-.9a1.8 1.8 0 0 0-2.5-1l-.8.4a1.8 1.8 0 0 1-2.4-2.4l.4-.8a1.8 1.8 0 0 0-1-2.5l-.9-.3a1.8 1.8 0 0 1 0-3.4l.9-.3a1.8 1.8 0 0 0 1-2.5l-.4-.8a1.8 1.8 0 0 1 2.4-2.4l.8.4a1.8 1.8 0 0 0 2.5-1z"/><circle cx="12" cy="12" r="3"/></symbol>
+      <symbol id="i-copy" viewBox="0 0 24 24"><rect x="9" y="9" width="11" height="11" rx="2.5"/><path d="M15 9V6.5A2.5 2.5 0 0 0 12.5 4h-6A2.5 2.5 0 0 0 4 6.5v6A2.5 2.5 0 0 0 6.5 15H9"/></symbol>
+      <symbol id="i-download" viewBox="0 0 24 24"><path d="M12 4v11M7.5 10.5 12 15l4.5-4.5M5 20h14"/></symbol>
+      <symbol id="i-upload" viewBox="0 0 24 24"><path d="M12 15V4M7.5 8.5 12 4l4.5 4.5M5 20h14"/></symbol>
+      <symbol id="i-qr" viewBox="0 0 24 24"><rect x="4" y="4" width="6" height="6" rx="1"/><rect x="14" y="4" width="6" height="6" rx="1"/><rect x="4" y="14" width="6" height="6" rx="1"/><path d="M14 14h2v2h-2zM18 18h2v2h-2zM18 14h2M14 18v2"/></symbol>
+      <symbol id="i-onion" viewBox="0 0 24 24"><path d="M12 3.2c.3 1.6 1.6 2.7 3.2 3.6 2.3 1.4 3.8 3.6 3.8 6.6 0 4.2-3.1 7.4-7 7.4s-7-3.2-7-7.4c0-3 1.5-5.2 3.8-6.6C10.4 5.9 11.7 4.8 12 3.2z"/><path d="M12 8.3c-1.9 1.3-3.2 3-3.2 5.2 0 2.6 1.4 4.6 3.2 5.2 1.8-.6 3.2-2.6 3.2-5.2 0-2.2-1.3-3.9-3.2-5.2z"/><path d="M12 12.2c-.6.5-1 1.2-1 2 0 1 .4 1.8 1 2.1.6-.3 1-1.1 1-2.1 0-.8-.4-1.5-1-2z"/></symbol>
+      <symbol id="i-shield" viewBox="0 0 24 24"><path d="M12 3.5 5 6.3v5.2c0 4.4 3 7.6 7 8.9 4-1.3 7-4.5 7-8.9V6.3z"/><path d="m9.2 12 2 2 3.8-3.8"/></symbol>
+      <symbol id="i-bolt" viewBox="0 0 24 24"><path d="M13 3 5.5 13.5H11l-1 7.5 7.5-10.5H12z"/></symbol>
+      <symbol id="i-change" viewBox="0 0 24 24"><path d="M19 12a7 7 0 0 1-12 4.9L5 15M5 12a7 7 0 0 1 12-4.9L19 9"/><path d="M19 4.5V9h-4.5M5 19.5V15h4.5"/></symbol>
+      <symbol id="i-theme" viewBox="0 0 24 24"><circle cx="12" cy="12" r="8"/><path d="M12 4a8 8 0 0 1 0 16z" class="fill"/></symbol>
+      <symbol id="i-sun" viewBox="0 0 24 24"><circle cx="12" cy="12" r="3.5"/><path d="M12 3v2M12 19v2M3 12h2M19 12h2M5.6 5.6 7 7M17 17l1.4 1.4M5.6 18.4 7 17M17 7l1.4-1.4"/></symbol>
+      <symbol id="i-moon" viewBox="0 0 24 24"><path d="M19.5 14.5A7.5 7.5 0 0 1 9.5 4.5a7.5 7.5 0 1 0 10 10z"/></symbol>
+      <symbol id="i-coins" viewBox="0 0 24 24"><ellipse cx="12" cy="6.5" rx="6.5" ry="2.5"/><path d="M5.5 6.5v5.5c0 1.4 2.9 2.5 6.5 2.5s6.5-1.1 6.5-2.5V6.5"/><path d="M5.5 12v5.5c0 1.4 2.9 2.5 6.5 2.5s6.5-1.1 6.5-2.5V12"/></symbol>
+      <symbol id="i-lang" viewBox="0 0 24 24"><circle cx="12" cy="12" r="8.5"/><path d="M3.5 12h17M12 3.5c2.3 2.3 3.5 5.1 3.5 8.5s-1.2 6.2-3.5 8.5c-2.3-2.3-3.5-5.1-3.5-8.5s1.2-6.2 3.5-8.5z"/></symbol>
+      <symbol id="i-card" viewBox="0 0 24 24"><rect x="3.5" y="5.5" width="17" height="13" rx="2.5"/><path d="M7 10h5M7 14h8"/></symbol>
+      <symbol id="i-sliders" viewBox="0 0 24 24"><path d="M5 20v-6M5 10V4M12 20v-8M12 8V4M19 20v-4M19 12V4M2.5 14h5M9.5 8h5M16.5 16h5"/></symbol>
+      <symbol id="i-timer" viewBox="0 0 24 24"><circle cx="12" cy="13" r="7.5"/><path d="M12 9.5V13l2.5 1.5M9.5 2.5h5"/></symbol>
+      <symbol id="i-phrase" viewBox="0 0 24 24"><rect x="4.5" y="3.5" width="15" height="17" rx="2.5"/><path d="M8 8h8M8 12h8M8 16h5"/></symbol>
+      <symbol id="i-server" viewBox="0 0 24 24"><rect x="4" y="4.5" width="16" height="6.5" rx="2"/><rect x="4" y="13" width="16" height="6.5" rx="2"/><path d="M8 7.75h.01M8 16.25h.01"/></symbol>
+      <symbol id="i-key" viewBox="0 0 24 24"><circle cx="8" cy="15.5" r="4.5"/><path d="m11.2 12.3 8.3-8.3M16.5 7l2.5 2.5M14 9.5l2 2"/></symbol>
+      <symbol id="i-plus" viewBox="0 0 24 24"><path d="M12 5v14M5 12h14"/></symbol>
+      <symbol id="i-trash" viewBox="0 0 24 24"><path d="M4 7h16M9 7V4.5h6V7M6.5 7l1 13h9l1-13"/></symbol>
+      <symbol id="i-help" viewBox="0 0 24 24"><circle cx="12" cy="12" r="8.5"/><path d="M9.6 9.5a2.4 2.4 0 1 1 3.4 2.2c-.6.3-1 .8-1 1.4v.4M12 16.5h.01"/></symbol>
+      <symbol id="i-info" viewBox="0 0 24 24"><circle cx="12" cy="12" r="8.5"/><path d="M12 11v5.5M12 7.8h.01"/></symbol>
+      <symbol id="i-chev" viewBox="0 0 24 24"><path d="m9.5 6 6 6-6 6"/></symbol>
+      <symbol id="i-down-chev" viewBox="0 0 24 24"><path d="m7 10 5 5 5-5"/></symbol>
+      <symbol id="i-out" viewBox="0 0 24 24"><path d="M8 16 16 8M9.5 8H16v6.5"/></symbol>
+      <symbol id="i-back" viewBox="0 0 24 24"><path d="M15 5.5 8.5 12l6.5 6.5"/></symbol>
+      <symbol id="i-close" viewBox="0 0 24 24"><path d="M7 7l10 10M17 7 7 17"/></symbol>
+      <symbol id="i-check" viewBox="0 0 24 24"><path d="m5.5 12.5 4 4 9-9"/></symbol>
+      <symbol id="i-x" viewBox="0 0 24 24"><circle cx="12" cy="12" r="8.5"/><path d="m9 9 6 6M15 9l-6 6"/></symbol>
+      <symbol id="i-globe" viewBox="0 0 24 24"><circle cx="12" cy="12" r="8.5"/><path d="M3.5 12h17M12 3.5c2.3 2.3 3.5 5.1 3.5 8.5s-1.2 6.2-3.5 8.5c-2.3-2.3-3.5-5.1-3.5-8.5s1.2-6.2 3.5-8.5z"/></symbol>
+      <symbol id="i-users" viewBox="0 0 24 24"><circle cx="9" cy="8.5" r="3.5"/><path d="M3 19.5c0-3.3 2.7-5.5 6-5.5s6 2.2 6 5.5"/><path d="M15.5 5.2a3.5 3.5 0 0 1 0 6.6M17.5 14.4c1.9.7 3.5 2.4 3.5 5.1"/></symbol>
+      <symbol id="i-note" viewBox="0 0 24 24"><path d="M5.5 4h9l4 4v12h-13z"/><path d="M14.5 4v4h4M8.5 12.5h7M8.5 16h4.5"/></symbol>
+      <symbol id="i-bell" viewBox="0 0 24 24"><path d="M6 16.5V11a6 6 0 0 1 12 0v5.5l1.5 2h-15z"/><path d="M10 20.5a2 2 0 0 0 4 0"/></symbol>
+      <symbol id="i-chart" viewBox="0 0 24 24"><path d="M4 19.5h16M6.5 16l4-5 3 3 4.5-6"/></symbol>
+      <symbol id="i-node" viewBox="0 0 24 24"><rect x="4" y="4" width="16" height="11" rx="2"/><path d="M9 19.5h6M12 15v4.5M8 9.5h.01M11 9.5h5"/></symbol>
+      <symbol id="i-search" viewBox="0 0 24 24"><circle cx="11" cy="11" r="6.5"/><path d="m16 16 4 4"/></symbol>
+      <symbol id="i-eye" viewBox="0 0 24 24"><path d="M2.5 12S6 5.5 12 5.5 21.5 12 21.5 12 18 18.5 12 18.5 2.5 12 2.5 12z"/><circle cx="12" cy="12" r="3"/></symbol>
+      <symbol id="i-db" viewBox="0 0 24 24"><ellipse cx="12" cy="6" rx="7.5" ry="2.8"/><path d="M4.5 6v6c0 1.5 3.4 2.8 7.5 2.8s7.5-1.3 7.5-2.8V6"/><path d="M4.5 12v6c0 1.5 3.4 2.8 7.5 2.8s7.5-1.3 7.5-2.8v-6"/></symbol>
+      <symbol id="i-inbox" viewBox="0 0 24 24"><path d="M4 13.5 6.2 6.3A2 2 0 0 1 8.1 5h7.8a2 2 0 0 1 1.9 1.3L20 13.5V18a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2z"/><path d="M4 13.5h4.5l1.5 2.5h4l1.5-2.5H20"/></symbol>
+    </svg>
+
+    <!-- ============================ Welcome / setup ======================== -->
+    <main id="v-welcome" class="screen" hidden>
+      <div class="welcome card-page">
+        <!-- The wallet at the centre, what it keeps private around it. -->
+        <div class="orbit" aria-hidden="true">
+          <span class="o-ring r1"></span>
+          <span class="o-ring r2"></span>
+          <div class="o-spin outer">
+            <span class="o-tile" style="--a: 200deg"><i><svg><use href="#i-onion"/></svg></i></span>
+            <span class="o-tile" style="--a: 290deg"><i><svg><use href="#i-eye"/></svg></i></span>
+            <span class="o-tile accent" style="--a: 20deg"><i><svg><use href="#i-shield"/></svg></i></span>
+            <span class="o-tile" style="--a: 110deg"><i><svg><use href="#i-db"/></svg></i></span>
+          </div>
+          <div class="o-spin inner">
+            <span class="o-tile small" style="--a: 60deg"><i><svg><use href="#i-key"/></svg></i></span>
+            <span class="o-tile small accent" style="--a: 180deg"><i><svg><use href="#i-send"/></svg></i></span>
+            <span class="o-tile small" style="--a: 300deg"><i><svg><use href="#i-lock"/></svg></i></span>
+          </div>
+          <img class="o-core" src="icons/icon256.png" alt="" />
+        </div>
+        <div class="w-copy">
+          <h1>Escanour</h1>
+          <p class="lede" data-i18n="welcome.lede">A private Neptune wallet that needs no node. Your keys never leave this browser.</p>
+        </div>
+        <div class="stack w-actions">
+          <button id="goCreate" class="btn primary" data-i18n="welcome.create">Create a wallet</button>
+          <button id="goImport" class="btn soft" data-i18n="welcome.restore">I have a recovery phrase</button>
+        </div>
+        <p class="w-foot" data-i18n="welcome.foot">Open source parts are listed in About. Nothing you type here leaves this device.</p>
+      </div>
+    </main>
+
+    <main id="v-ready" class="screen" hidden>
+      <div class="welcome card-page">
+        <span class="step-ic big ok"><svg><use href="#i-check"/></svg></span>
+        <div class="w-copy">
+          <h2 data-i18n="ready.title">Your wallet is ready</h2>
+          <p class="lede" data-i18n="ready.lede">It opens on the side of any page: click the Escanour icon in the toolbar.</p>
+        </div>
+        <div class="stack w-actions">
+          <button id="openPanel" class="btn primary" data-i18n="ready.open">Open the wallet</button>
+        </div>
+        <p class="w-foot" data-i18n="ready.pin">Tip: pin Escanour with the puzzle icon so it is always one click away.</p>
+      </div>
+    </main>
+
+    <main id="v-setup" class="screen sub" hidden>
+      <header class="page-head">
+        <button class="icon back-setup" data-i18n-aria="common.back" aria-label="Back"><svg><use href="#i-back"/></svg></button>
+        <h2 id="setupTitle">New wallet</h2>
+        <span class="icon-space"></span>
+      </header>
+      <div class="pad stack setup-pad">
+        <div class="step-head">
+          <span id="stepIc" class="step-ic"><svg><use id="stepIcUse" href="#i-phrase"/></svg></span>
+          <b id="stepTitle"></b>
+          <small id="stepSub"></small>
+          <ol id="stepDots" class="step-dots" aria-hidden="true"></ol>
+        </div>
+        <p id="setupWarn" class="note warn" hidden data-i18n="setup.replaceWarn">This replaces the wallet in this browser. Write down its recovery phrase first if you still need it.</p>
+
+        <div id="phraseWrap" class="stack step" data-step="words" hidden>
+          <p class="hint" data-i18n="setup.writeDown">Write these 18 words on paper, in order. They are the only way to recover your funds.</p>
+          <ol id="phraseGrid" class="words"></ol>
+          <div class="row2">
+            <button id="copyNewPhrase" class="btn soft"><svg><use href="#i-copy"/></svg><span data-i18n="phrase.copy">Copy</span></button>
+            <button id="saveNewPhrase" class="btn soft"><svg><use href="#i-download"/></svg><span data-i18n="phrase.export">Export</span></button>
+          </div>
+          <label class="check"><input id="savedPhrase" type="checkbox" /> <span data-i18n="setup.wrote">I saved them somewhere safe</span></label>
+        </div>
+
+        <div id="phraseInputWrap" class="field step" data-step="enter" hidden>
+          <div class="field-head"><label for="phraseInput" data-i18n="setup.phrase">Recovery phrase</label>
+            <button type="button" id="importPhraseFile" class="chip"><svg><use href="#i-upload"/></svg><span data-i18n="phrase.import">Import file</span></button>
+          </div>
+          <div id="recoveryImportBox" class="stack" hidden><label class="field"><span data-i18n="backup.filePassword">Recovery-file password</span><input id="recoveryImportPassword" type="password" autocomplete="off" /></label><button id="recoveryImport" type="button" class="btn soft" data-i18n="backup.open">Open encrypted recovery file</button><p id="recoveryImportError" class="err" role="alert"></p></div>
+          <textarea id="phraseInput" rows="4" spellcheck="false" autocomplete="off" data-i18n-ph="setup.phrasePh" placeholder="18 words separated by spaces"></textarea>
+          <small id="phraseCount" class="hint"></small>
+          <input id="phraseFile" type="file" accept=".txt,.json,text/plain,application/json" hidden />
+        </div>
+
+        <fieldset id="restoreModes" class="modes step" data-step="how" hidden>
+          <legend data-i18n="rm.title">How to find your coins</legend>
+          <label class="mode">
+            <input type="radio" name="restoreMode" value="fast" checked />
+            <span class="mode-body">
+              <b data-i18n="rm.fast">Fast</b>
+              <span data-i18n="rm.fastHint">Seconds. The server is asked which blocks pay your addresses, so it learns which coins are yours.</span>
+            </span>
+          </label>
+          <label class="mode">
+            <input type="radio" name="restoreMode" value="node" />
+            <span class="mode-body">
+              <b data-i18n="rm.node">Fast with my own node</b>
+              <span data-i18n="rm.nodeHint">Seconds, and nobody else learns anything. Needs neptune-core running with --utxo-index on this computer.</span>
+              <input id="rmNodeUrl" class="mode-url" type="url" spellcheck="false" value="http://127.0.0.1:9797/" aria-label="Node address" />
+            </span>
+          </label>
+          <label class="mode">
+            <input type="radio" name="restoreMode" value="private" />
+            <span class="mode-body">
+              <b data-i18n="rm.private">Private full scan</b>
+              <span data-i18n="rm.privateHint">Reads every block, so the server learns nothing. Can take a long time.</span>
+            </span>
+          </label>
+          <small class="hint" data-i18n="rm.fallback">If the server cannot do a fast restore, the wallet does the private full scan instead.</small>
+          <small class="hint" data-i18n="private.restore">Test networks always use a full scan in this experimental build so private app payments can be recovered. Start before your first payment.</small>
+        </fieldset>
+
+
+        <div class="stack step" data-step="password" hidden>
+        <label class="field"><span data-i18n="setup.network">Network</span>
+          <select id="network">
+            <option value="main" data-i18n="net.main">Mainnet</option>
+            <option value="testnet" data-i18n="net.testnet">Testnet</option>
+            <option value="testnet-mock" data-i18n="net.mock">Testnet with mock proofs</option>
+          </select>
+        </label>
+        <label class="field"><span data-i18n="setup.password">Password</span>
+          <span class="pw-wrap"><input id="pw1" type="password" autocomplete="new-password" data-i18n-ph="setup.passwordPh" placeholder="At least 10 characters" /><button type="button" class="pw-eye" data-for="pw1" data-i18n-aria="setup.showPw" aria-label="Show"><svg><use href="#i-eye"/></svg></button></span>
+        </label>
+        <label class="field"><span data-i18n="setup.repeat">Repeat password</span>
+          <span class="pw-wrap"><input id="pw2" type="password" autocomplete="new-password" /><button type="button" class="pw-eye" data-for="pw2" data-i18n-aria="setup.showPw" aria-label="Show"><svg><use href="#i-eye"/></svg></button></span>
+        </label>
+        <div id="pwMeter" class="pw-meter" data-s="0"><i></i><i></i><i></i></div>
+        </div>
+        <p id="setupErr" class="err" role="alert"></p>
+        <button id="setupNext" class="btn primary" data-i18n="setup.continue">Continue</button>
+        <button id="setupGo" class="btn primary">Create wallet</button>
+      </div>
+    </main>
+
+    <main id="v-unlock" class="screen" hidden>
+      <div class="welcome">
+        <img class="logo small" src="icons/icon256.png" alt="" />
+        <h2 data-i18n="unlock.title">Welcome back</h2>
+        <form id="unlockForm" class="stack wide" autocomplete="off">
+          <input id="unlockPw" type="password" autocomplete="off" data-i18n-ph="setup.password" placeholder="Password" aria-label="Password" />
+          <p id="unlockErr" class="err" role="alert"></p>
+          <button id="unlockGo" type="submit" class="btn primary" data-i18n="unlock.go">Unlock</button>
+        </form>
+        <button id="forgot" class="link" data-i18n="unlock.forgot">Forgot your password? Restore with your recovery phrase</button>
+      </div>
+    </main>
+
+    <!-- ================================ Home =============================== -->
+    <main id="v-home" class="screen" hidden>
+      <!-- One vertical axis: two icons each side of the network, then the
+           balance, its price line, and the two actions, all centred. -->
+      <header class="top sym">
+        <div class="side">
+          <button id="privacyChip" class="icon pv-btn" data-level="none" data-i18n-aria="pv.title" aria-label="Privacy"><svg><use href="#i-shield"/></svg><span id="privacyLabel" hidden></span></button>
+          <button id="lockBtn" class="icon" data-i18n-aria="home.lock" aria-label="Lock" title="Lock"><svg><use href="#i-lock"/></svg></button>
+        </div>
+        <button id="netBtn" class="net-pill" data-sync="busy"><i class="net-dot"></i><svg class="net-onion" aria-hidden="true"><use href="#i-onion"/></svg><span id="netName">Mainnet</span></button>
+        <div class="side end">
+          <button id="torBtn" class="icon tor-btn" data-state="off" aria-label="Tor" title="Tor"><svg><use href="#i-onion"/></svg></button>
+          <button id="goPrivate" class="icon private-controls-btn" aria-describedby="privateStripState" data-i18n-aria="private.controlsTitle" aria-label="Private controls" title="Private controls"><svg><use href="#i-lock"/></svg><span id="privateStripState" hidden></span></button>
+          <button id="settingsBtn" class="icon" data-i18n-aria="set.title" aria-label="Settings" title="Settings"><svg><use href="#i-gear"/></svg></button>
+        </div>
+      </header>
+      <button id="torBanner" class="tor-banner" data-state="off" hidden>
+        <svg class="tb-onion"><use href="#i-onion"/></svg>
+        <span class="tb-text"><b id="torBannerTitle"></b><small id="torBannerSub"></small></span>
+        <svg class="chev"><use href="#i-chev"/></svg>
+      </button>
+
+      <section class="hero lefty">
+        <div class="balance-label"><span data-i18n="home.available">Available</span><button id="hideAssets" class="chip" aria-pressed="false" data-i18n="watch.hideAmounts">Hide amounts</button></div>
+        <p class="b-amount" aria-live="polite"><span id="balAvail">0</span><small>NPT</small></p>
+        <p id="fiat" class="fiat" hidden><span id="fiatVal"></span></p>
+        <!-- Shown only when something is not normal: syncing, a problem. -->
+        <button id="statusBtn" class="sync-line" data-state="busy" title="" hidden>
+          <svg class="ring-s" viewBox="0 0 40 40" aria-hidden="true">
+            <circle class="track" cx="20" cy="20" r="16" />
+            <circle id="orbitArc" class="arc" cx="20" cy="20" r="16" pathLength="100" />
+          </svg>
+          <b id="statusTitle">Connecting</b><span id="statusSub"></span>
+        </button>
+        <p id="balExtra" class="b-extra"></p>
+      </section>
+
+      <!-- The price of one NPT over 7 days: its own band, never behind text. -->
+      <section id="market" class="market" hidden>
+        <div id="spark" class="spark" data-dir="up" aria-hidden="true">
+          <svg viewBox="0 0 300 60" preserveAspectRatio="none">
+            <defs>
+              <linearGradient id="sparkFill" x1="0" y1="0" x2="0" y2="1">
+                <stop offset="0" stop-color="currentColor" stop-opacity=".22" />
+                <stop offset="1" stop-color="currentColor" stop-opacity="0" />
+              </linearGradient>
+            </defs>
+            <path id="sparkArea" fill="url(#sparkFill)" />
+            <path id="sparkLine" fill="none" stroke="currentColor" vector-effect="non-scaling-stroke" />
+          </svg>
+          <i id="sparkDot" class="spark-dot"></i>
+        </div>
+        <p class="market-cap"><span id="unitPrice"></span><span id="fiatChg" class="chg"></span><span id="sparkTag" class="spark-tag"></span></p>
+      </section>
+
+      <!-- Four square tiles in one colour, then the tabs. -->
+      <nav class="tiles">
+        <button id="goReceive" class="tile"><svg><use href="#i-receive"/></svg><span data-i18n="home.receive">Receive</span></button>
+        <button id="goSend" class="tile"><svg><use href="#i-send"/></svg><span data-i18n="home.send">Send</span></button>
+        <button id="goWatch" class="tile"><svg><use href="#i-eye"/></svg><span data-i18n="home.watch">Watch</span></button>
+        <button id="goPrivacy" class="tile"><svg><use href="#i-shield"/></svg><span data-i18n="pv.title">Privacy</span></button>
+      </nav>
+
+      <div id="sendCard" class="send-card" hidden role="button" tabindex="0">
+        <div class="sc-top"><b id="scTitle"></b><span id="scStep"></span></div>
+        <div class="bar-track"><div id="scBar"></div></div>
+        <p id="scNote" class="hint"></p>
+      </div>
+
+      <div class="tabs" role="tablist">
+        <button class="tab on" role="tab" data-tab="addr" data-i18n="home.tabAddr">Addresses</button>
+        <button class="tab" role="tab" data-tab="watch" data-i18n="home.tabWatch">Watch-only</button>
+        <button class="tab" role="tab" data-tab="act" data-i18n="home.activity">Activity</button>
+      </div>
+
+      <section class="pane" data-pane="addr">
+        <div class="address-tools"><button id="addressFreshSettings" class="address-policy"><svg><use href="#i-change"/></svg><span data-i18n="fresh.setting">Fresh receiving addresses</span><span id="addressFreshIndicator" class="private-nav-status" role="status"></span><svg class="settings-mark"><use href="#i-gear"/></svg></button><button id="refreshAddresses" class="icon" data-i18n-aria="fresh.refresh" aria-label="Refresh receiving addresses" hidden><svg><use href="#i-change"/></svg></button></div>
+        <div class="cards">
+          <article class="acard k-gen" data-kind="generation" tabindex="0">
+            <header><span class="k-icon"><svg><use href="#i-shield"/></svg></span><b data-i18n="kind.generationShort">Post-quantum</b></header>
+            <p class="k-bal"><span id="kBal-generation">0</span> <small>NPT</small></p>
+            <footer>
+              <p class="k-addr" id="kAddr-generation">…</p>
+              <button class="mini k-copy" data-kind="generation" data-i18n-aria="recv.copy" aria-label="Copy"><svg><use href="#i-copy"/></svg></button>
+              <button class="mini k-qr" data-kind="generation" data-i18n-aria="recv.showQr" aria-label="QR code"><svg><use href="#i-qr"/></svg></button>
+            </footer>
+          </article>
+          <article class="acard k-ech" data-kind="ec-hybrid" tabindex="0">
+            <header><span class="k-icon"><svg><use href="#i-bolt"/></svg></span><b data-i18n="kind.ecHybridShort">Short</b></header>
+            <p class="k-bal"><span id="kBal-ec-hybrid">0</span> <small>NPT</small></p>
+            <footer>
+              <p class="k-addr" id="kAddr-ec-hybrid">…</p>
+              <button class="mini k-copy" data-kind="ec-hybrid" data-i18n-aria="recv.copy" aria-label="Copy"><svg><use href="#i-copy"/></svg></button>
+              <button class="mini k-qr" data-kind="ec-hybrid" data-i18n-aria="recv.showQr" aria-label="QR code"><svg><use href="#i-qr"/></svg></button>
+            </footer>
+          </article>
+        </div>
+        <p id="kChangeRow" class="change-row" hidden><svg><use href="#i-change"/></svg><span id="kChangeText"></span></p>
+      </section>
+
+      <section id="homeWatchSection" class="pane watch-dashboard" data-pane="watch" hidden>
+        <div class="watch-heading"><div><p class="eyebrow" data-i18n="watch.readOnly">READ ONLY</p><h2 data-i18n="watch.dashboard">Watchlist</h2><small id="homeWatchCount"></small></div>
+          <button id="homeContacts" class="chip" data-i18n="ct.title">Contacts</button>
+          <button id="homeWatchAdd" class="chip accent" data-i18n="watch.addShort">+ Add</button>
+        </div>
+        <div class="watch-filters"><input id="homeWatchSearch" type="search" data-i18n-ph="watch.search" placeholder="Search watched addresses" /><label class="hidden-filter"><input id="homeShowHidden" type="checkbox" /><span data-i18n="watch.showHidden">Hidden</span></label></div>
+        <ul id="homeWatch" class="hw-list"></ul>
+        <button id="homeWatchEmpty" class="empty-tile" hidden>
+          <svg><use href="#i-eye"/></svg>
+          <b data-i18n="watch.add">Follow an address</b>
+          <small data-i18n="home.watchEmpty">See what another wallet receives, with its viewing key. Nothing can be spent from here.</small>
+        </button>
+        <button id="homeWatchMore" class="link-btn hw-more" data-i18n="watch.add" hidden>Follow an address</button>
+      </section>
+
+      <section class="pane recent" data-pane="act" hidden>
+        <ul id="historyList" class="tx-list"></ul>
+        <button id="seeAll" class="link-btn hw-more" data-i18n="tx.seeAllShort">See all</button>
+      </section>
+    </main>
+
+    <main id="v-private" class="screen sub" hidden>
+      <header class="page-head"><button class="icon to-home" data-i18n-aria="common.back" aria-label="Back"><svg><use href="#i-back"/></svg></button><h2 data-i18n="private.controlsTitle">Private controls</h2><span class="icon-space"></span></header>
+      <div class="list"><div class="group private-menu">
+        <button class="row private-route" data-private-page="payments"><span class="row-text" data-i18n="private.setting">Private app notifications</span><span id="privateModeIndicator" class="private-nav-status" role="status"></span><svg class="chev"><use href="#i-chev"/></svg></button>
+        <button class="row private-route" data-private-page="fresh"><span class="row-text" data-i18n="fresh.setting">Fresh receiving addresses</span><span id="privateFreshIndicator" class="private-nav-status" role="status"></span><svg class="chev"><use href="#i-chev"/></svg></button>
+        <button class="row private-route" data-private-page="leaks"><span class="row-text" data-i18n="guard.title">Leak protection</span><span id="privateLeakIndicator" class="private-nav-status" role="status"></span><svg class="chev"><use href="#i-chev"/></svg></button>
+        <button class="row private-route" data-private-page="backup"><span class="row-text" data-i18n="backup.title">Encrypted recovery file</span><span id="privateBackupIndicator" class="private-nav-status" role="status"></span><svg class="chev"><use href="#i-chev"/></svg></button>
+        <button class="row private-route" data-private-page="recovery"><span class="row-text" data-i18n="private.scanTitle">Scanning and recovery</span><span id="privateRecoveryIndicator" class="private-nav-status" role="status"></span><svg class="chev"><use href="#i-chev"/></svg></button>
+        <button class="row private-route" data-private-page="history"><span class="row-text" data-i18n="private.activity">Private payment activity</span><span id="privateHistoryIndicator" class="private-nav-status" role="status"></span><svg class="chev"><use href="#i-chev"/></svg></button>
+      </div></div>
+    </main>
+
+    <main id="v-private-payments" class="screen sub" hidden>
+      <header class="page-head"><button class="icon to-private" data-i18n-aria="common.back" aria-label="Back"><svg><use href="#i-back"/></svg></button><h2 data-i18n="private.setting">Private payments</h2><span class="icon-space"></span></header>
+      <div class="pad stack"><div class="tor-hero feature-hero" data-private-feature="payments" data-state="off"><span class="tor-orb"><svg><use href="#i-lock"/></svg></span><b data-i18n="feature.paymentsTitle"></b><span class="private-nav-status" role="status"></span><small data-i18n="feature.paymentsHint"></small><small id="privateState" role="status"></small></div>
+        <div class="group"><label class="row"><span class="r-ic c4"><svg><use href="#i-lock"/></svg></span><span class="row-text"><b data-i18n="private.setting">Private payments</b><small data-i18n="feature.testWarning">Experimental. Test funds only.</small></span><input id="setPrivateNotifications" type="checkbox" class="switch" /></label></div>
+        <div class="row2"><button id="privateSend" class="btn primary" data-i18n="private.send">Send privately</button><button id="privateReceive" class="btn soft" data-i18n="private.receiveShort">Receive privately</button></div>
+<details class="opts feature-details"><summary data-i18n="feature.details">Details</summary><div class="stack"><p class="hint" data-i18n="private.warning"></p><p class="hint" data-i18n="private.explainer"></p><p class="hint" data-i18n="private.shared"></p><h3 data-i18n="private.addressPolicy"></h3><p class="hint" data-i18n="private.addressPolicyHint"></p><p class="hint" data-i18n="private.caveat"></p></div></details></div>
+    </main>
+
+    <main id="v-private-fresh" class="screen sub" hidden>
+      <header class="page-head"><button class="icon to-private" data-i18n-aria="common.back" aria-label="Back"><svg><use href="#i-back"/></svg></button><h2 data-i18n="fresh.setting">Fresh addresses</h2><span class="icon-space"></span></header>
+      <div class="pad stack"><div class="tor-hero feature-hero" data-private-feature="fresh" data-state="off"><span class="tor-orb"><svg><use href="#i-change"/></svg></span><b data-i18n="feature.freshTitle"></b><span class="private-nav-status" role="status"></span><small data-i18n="feature.freshHint"></small></div>
+        <div class="group"><label class="row"><span class="r-ic c4"><svg><use href="#i-change"/></svg></span><span class="row-text"><b data-i18n="fresh.setting">Fresh addresses</b><small data-i18n="feature.freshControlHint">Applies to normal and private receiving.</small></span><input id="setFreshAddresses" type="checkbox" class="switch" /></label></div>
+<details class="opts feature-details"><summary data-i18n="feature.details">Details</summary><div class="stack"><p class="hint" data-i18n="fresh.hint"></p><p class="hint" data-i18n="fresh.refreshHelp"></p><p class="hint" data-i18n="fresh.linkHint"></p></div></details></div>
+    </main>
+
+    <main id="v-private-leaks" class="screen sub" hidden>
+      <header class="page-head"><button class="icon to-private" data-i18n-aria="common.back" aria-label="Back"><svg><use href="#i-back"/></svg></button><h2 data-i18n="guard.title">Rotate after a leak</h2><span class="icon-space"></span></header>
+      <div class="pad stack"><div class="tor-hero feature-hero" data-private-feature="leaks" data-state="off"><span class="tor-orb"><svg><use href="#i-shield"/></svg></span><b data-i18n="feature.leaksTitle"></b><span class="private-nav-status" role="status"></span><small data-i18n="feature.leaksHint"></small></div>
+        <div class="group"><label class="row"><span class="r-ic c4"><svg><use href="#i-shield"/></svg></span><span class="row-text"><b data-i18n="guard.title">Rotate after a leak</b><small data-i18n="feature.leaksControlHint">Changes the address shown for future use.</small></span><input id="setRotateOnLeak" type="checkbox" class="switch" /></label></div>
+        <p id="privateDowngradeAlert" class="err" role="alert" hidden data-i18n="private.downgrade"></p>
+        <button class="btn soft private-route" data-private-page="history" data-i18n="private.activity">Private activity</button>
+<details class="opts feature-details"><summary data-i18n="feature.details">Details</summary><div class="stack"><p class="hint" data-i18n="guard.hint"></p><p class="hint" data-i18n="guard.labels"></p></div></details></div>
+    </main>
+
+    <main id="v-private-backup" class="screen sub" hidden>
+      <header class="page-head"><button class="icon to-private" data-i18n-aria="common.back" aria-label="Back"><svg><use href="#i-back"/></svg></button><h2 data-i18n="backup.title">Encrypted recovery file</h2><span class="icon-space"></span></header>
+      <div class="pad stack"><div class="tor-hero feature-hero" data-private-feature="backup" data-state="off"><span class="tor-orb"><svg><use href="#i-phrase"/></svg></span><b data-i18n="feature.backupTitle"></b><span class="private-nav-status" role="status"></span><small data-i18n="feature.backupHint"></small></div>
+        <form id="recoveryExportForm" class="stack" autocomplete="off"><label class="field"><span data-i18n="backup.password">Current wallet password</span><input id="recoveryExportPassword" type="password" autocomplete="off" /></label><button id="recoveryExport" class="btn primary" type="submit" data-i18n="backup.export">Download encrypted recovery file</button><p id="recoveryExportError" class="err" role="alert"></p></form>
+<details class="opts feature-details"><summary data-i18n="feature.details">Details</summary><div class="stack"><p class="hint" data-i18n="backup.hint"></p><p class="hint" data-i18n="backup.seedHint"></p></div></details></div>
+    </main>
+
+    <main id="v-private-recovery" class="screen sub" hidden>
+      <header class="page-head"><button class="icon to-private" data-i18n-aria="common.back" aria-label="Back"><svg><use href="#i-back"/></svg></button><h2 data-i18n="private.scanTitle">Scanning and recovery</h2><span class="icon-space"></span></header>
+      <div class="pad stack"><div class="tor-hero feature-hero" data-private-feature="recovery" data-state="off"><span class="tor-orb"><svg><use href="#i-search"/></svg></span><b data-i18n="feature.recoveryTitle"></b><span class="private-nav-status" role="status"></span><small data-i18n="feature.recoveryHint"></small></div>
+        <div class="bar-track"><div id="privateScanBar"></div></div><p id="privateScanText" class="hint center"></p>
+        <button id="privateRecover" class="btn primary" data-i18n="private.recover">Scan wallet history</button><p id="privateRecoveryError" class="err" role="alert"></p>
+        <details class="opts feature-details"><summary data-i18n="feature.knownBlock">Start from a known block (optional)</summary><div class="stack"><p class="hint" data-i18n="private.recoveryHint"></p><label class="field"><span data-i18n="private.firstBlock"></span><input id="privateFirstBlock" type="number" min="0" inputmode="numeric" dir="ltr" placeholder="0" /></label></div></details>
+<details class="opts feature-details"><summary data-i18n="feature.details">Details</summary><div class="stack"><h3 data-i18n="private.performance"></h3><p class="hint" data-i18n="private.performanceHint"></p><p class="hint" data-i18n="private.serverHint"></p><button id="privateServers" class="btn soft" data-i18n="private.node">Choose a block source</button></div></details></div>
+    </main>
+
+    <main id="v-private-history" class="screen sub" hidden>
+      <header class="page-head"><button class="icon to-private" data-i18n-aria="common.back" aria-label="Back"><svg><use href="#i-back"/></svg></button><h2 data-i18n="private.activity">Private activity</h2><span class="icon-space"></span></header>
+      <div class="pad stack"><div class="tor-hero feature-hero" data-private-feature="history" data-state="off"><span class="tor-orb"><svg><use href="#i-history"/></svg></span><b data-i18n="feature.historyTitle"></b><span class="private-nav-status" role="status"></span><small data-i18n="feature.historyHint"></small></div><ul id="privateActivity" class="tx-list"></ul><p id="privateEmpty" class="hint center" data-i18n="private.empty"></p></div>
+    </main>
+
+    <!-- ============================== Settings ============================= -->
+    <main id="v-settings" class="screen sub" hidden>
+      <header class="page-head">
+        <button class="icon to-home" data-i18n-aria="common.back" aria-label="Back"><svg><use href="#i-back"/></svg></button>
+        <h2 data-i18n="set.title">Settings</h2>
+        <span class="icon-space"></span>
+      </header>
+      <div class="list">
+        <h3 data-i18n="pc.group">Privacy</h3>
+        <div class="group">
+          <button class="row pc-row" data-go="pcheck">
+            <span class="light" id="pcLight" data-s="info" aria-hidden="true"></span>
+            <span class="row-text"><b class="row-b" data-i18n="pc.title">Privacy check</b><small id="pcSummary"></small></span>
+            <svg class="chev"><use href="#i-chev"/></svg>
+          </button>
+          <button class="row" data-go="tor" id="torNavRow">
+            <span class="r-ic tor-ic"><svg><use href="#i-onion"/></svg></span>
+            <span class="row-text"><b class="row-b" data-i18n="tor.name">Tor</b><small id="torNavHint"></small></span>
+            <span class="light" id="torNavLight" data-s="off" aria-hidden="true"></span>
+            <svg class="chev"><use href="#i-chev"/></svg>
+          </button>
+        </div>
+
+        <h3 data-i18n="set.prefs">Preferences</h3>
+        <div class="group">
+          <div class="row">
+            <span class="r-ic c1"><svg><use href="#i-theme"/></svg></span><span data-i18n="set.theme">Theme</span>
+            <div id="themeSeg" class="seg mini" role="radiogroup">
+              <button data-theme="auto" data-i18n="set.auto">Auto</button>
+              <button data-theme="light" data-i18n-aria="set.light" aria-label="Light"><svg><use href="#i-sun"/></svg></button>
+              <button data-theme="dark" data-i18n-aria="set.dark" aria-label="Dark"><svg><use href="#i-moon"/></svg></button>
+            </div>
+          </div>
+          <label class="row">
+            <span class="r-ic c2"><svg><use href="#i-coins"/></svg></span><span data-i18n="set.currency">Local currency</span>
+            <select id="setCurrency" class="pill">
+              <option value="off" data-i18n="set.off">Off</option>
+              <option value="usdt">USDT</option>
+              <option value="usd">USD</option>
+              <option value="eur">EUR</option>
+              <option value="gbp">GBP</option>
+            </select>
+          </label>
+          <label class="row">
+            <span class="r-ic c3"><svg><use href="#i-lang"/></svg></span><span data-i18n="set.language">Language</span>
+            <select id="setLanguage" class="pill">
+              <option value="auto" data-i18n="set.auto">Auto</option>
+              <option value="en">English</option>
+              <option value="fr">Français</option>
+              <option value="ar">العربية</option>
+            </select>
+          </label>
+          <label class="row">
+            <span class="r-ic cd"><svg><use href="#i-bell"/></svg></span><span data-i18n="set.notifications">Notifications</span>
+            <input id="setNotif" type="checkbox" class="switch" />
+          </label>
+          <label class="row">
+            <span class="r-ic c4"><svg><use href="#i-card"/></svg></span><span data-i18n="set.defaultAddr">Default address</span>
+            <select id="setKind" class="pill">
+              <option value="generation" data-i18n="kind.generationShort">Post-quantum</option>
+              <option value="ec-hybrid" data-i18n="kind.ecHybridShort">Short</option>
+            </select>
+          </label>
+        </div>
+
+        <h3 data-i18n="more.group">Coins and addresses</h3>
+        <div class="group">
+          <button class="row" data-go="watch">
+            <span class="r-ic c3"><svg><use href="#i-eye"/></svg></span>
+            <span class="row-text"><b class="row-b" data-i18n="watch.title">Watch-only addresses</b><small id="watchNavHint"></small></span>
+            <svg class="chev"><use href="#i-chev"/></svg>
+          </button>
+          <button class="row" data-go="claim">
+            <span class="r-ic c5"><svg><use href="#i-inbox"/></svg></span>
+            <span class="row-text"><b class="row-b" data-i18n="claim.title">Register a payment</b><small data-i18n="claim.navHint"></small></span>
+            <svg class="chev"><use href="#i-chev"/></svg>
+          </button>
+          <button class="row" data-go="archive">
+            <span class="r-ic c2"><svg><use href="#i-db"/></svg></span>
+            <span class="row-text"><b class="row-b" data-i18n="arch.title">Local archive</b><small id="archNavHint"></small></span>
+            <span class="light" id="archNavLight" data-s="off" aria-hidden="true"></span>
+            <svg class="chev"><use href="#i-chev"/></svg>
+          </button>
+        </div>
+
+        <h3 data-i18n="set.privacy">Privacy and security</h3>
+        <div class="group">
+          <label class="row">
+            <span class="r-ic c5"><svg><use href="#i-timer"/></svg></span><span data-i18n="set.autolock">Auto-lock</span>
+            <select id="setLock" class="pill" dir="ltr">
+              <option value="5">5 min</option>
+              <option value="15">15 min</option>
+              <option value="30">30 min</option>
+              <option value="60">60 min</option>
+              <option value="240">4 h</option>
+            </select>
+          </label>
+          <label class="row">
+            <span class="r-ic c3"><svg><use href="#i-chart"/></svg></span><span><b class="row-b" data-i18n="set.prices">Price lookup</b><small data-i18n="set.pricesHint">CoinGecko sees your IP when on</small></span>
+            <input id="setPrices" type="checkbox" class="switch" />
+          </label>
+          <button class="row" data-go="phrase">
+            <span class="r-ic c6"><svg><use href="#i-phrase"/></svg></span><span data-i18n="set.phrase">Recovery phrase</span><svg class="chev"><use href="#i-chev"/></svg>
+          </button>
+          <button class="row" data-go="servers">
+            <span class="r-ic c2"><svg><use href="#i-server"/></svg></span><span data-i18n="set.servers">Servers</span><svg class="chev"><use href="#i-chev"/></svg>
+          </button>
+          <button class="row" data-go="advanced">
+            <span class="r-ic c4"><svg><use href="#i-sliders"/></svg></span><span data-i18n="set.advanced">Advanced</span><svg class="chev"><use href="#i-chev"/></svg>
+          </button>
+        </div>
+
+        <h3 data-i18n="set.wallet">Wallet</h3>
+        <div class="group">
+          <button class="row" data-go="contacts">
+            <span class="r-ic c5"><svg><use href="#i-users"/></svg></span><span data-i18n="ct.title">Contacts</span><svg class="chev"><use href="#i-chev"/></svg>
+          </button>
+          <button id="setRestore" class="row">
+            <span class="r-ic c3"><svg><use href="#i-key"/></svg></span><span data-i18n="set.restore">Restore another wallet</span><svg class="chev"><use href="#i-chev"/></svg>
+          </button>
+          <button id="setCreate" class="row">
+            <span class="r-ic c1"><svg><use href="#i-plus"/></svg></span><span data-i18n="set.create">Create a new wallet</span><svg class="chev"><use href="#i-chev"/></svg>
+          </button>
+          <button id="resetGo" class="row danger">
+            <span class="r-ic cd"><svg><use href="#i-trash"/></svg></span><span data-i18n="set.remove">Remove wallet from this browser</span>
+          </button>
+        </div>
+
+        <h3 data-i18n="set.support">Support</h3>
+        <div class="group">
+          <a class="row" href="https://neptune.cash" target="_blank" rel="noopener">
+            <span class="r-ic c5"><svg><use href="#i-help"/></svg></span><span data-i18n="set.help">Help center</span><svg class="chev"><use href="#i-out"/></svg>
+          </a>
+          <button class="row" data-go="about">
+            <span class="r-ic c6"><svg><use href="#i-info"/></svg></span><span data-i18n="set.about">About</span><svg class="chev"><use href="#i-chev"/></svg>
+          </button>
+        </div>
+        <p id="versionLine" class="version"></p>
+      </div>
+    </main>
+
+    <main id="v-contacts" class="screen sub" hidden>
+      <header class="page-head">
+        <button class="icon to-settings" data-i18n-aria="common.back" aria-label="Back"><svg><use href="#i-back"/></svg></button>
+        <h2 data-i18n="ct.title">Contacts</h2>
+        <button id="addContact" class="icon" data-i18n-aria="ct.add" aria-label="Add contact"><svg><use href="#i-plus"/></svg></button>
+      </header>
+      <div class="pad stack">
+        <p class="hint" data-i18n="ct.hint">Saved addresses, encrypted on this device. Contacts are kept per network.</p>
+        <ul id="contactList" class="contact-list group"></ul>
+      </div>
+    </main>
+
+    <main id="v-phrase" class="screen sub" hidden>
+      <header class="page-head">
+        <button class="icon to-settings" data-i18n-aria="common.back" aria-label="Back"><svg><use href="#i-back"/></svg></button>
+        <h2 data-i18n="set.phrase">Recovery phrase</h2>
+        <span class="icon-space"></span>
+      </header>
+      <div class="pad stack">
+        <div class="note warn">
+          <b data-i18n="phrase.warnTitle">Never share these words</b>
+          <span data-i18n="phrase.warn">Anyone who has them can take all your funds. No support person will ever ask for them.</span>
+        </div>
+        <form id="revealForm" class="stack" autocomplete="off">
+          <label class="field"><span data-i18n="phrase.enterPw">Enter your password to show them</span>
+            <input id="revealPw" type="password" autocomplete="off" />
+          </label>
+          <p id="revealErr" class="err" role="alert"></p>
+          <button id="revealGo" type="submit" class="btn primary"><span data-i18n="phrase.show">Show recovery phrase</span></button>
+        </form>
+        <div id="revealBox" class="stack" hidden>
+          <ol id="revealGrid" class="words"></ol>
+          <div class="row2">
+            <button id="copyPhrase" class="btn soft"><svg><use href="#i-copy"/></svg><span data-i18n="phrase.copy">Copy</span></button>
+            <button id="savePhrase" class="btn soft"><svg><use href="#i-download"/></svg><span data-i18n="phrase.export">Export</span></button>
+          </div>
+          <p class="hint small" data-i18n="phrase.copyHint">A copy is cleared from the clipboard after one minute while this window stays open. An exported file is not encrypted: keep it offline.</p>
+          <button id="revealHide" class="btn plain" data-i18n="phrase.hide">Hide</button>
+        </div>
+      </div>
+    </main>
+
+    <main id="v-servers" class="screen sub" hidden>
+      <header class="page-head">
+        <button id="serversBack" class="icon" data-i18n-aria="common.back" aria-label="Back"><svg><use href="#i-back"/></svg></button>
+        <h2 data-i18n="set.servers">Servers</h2>
+        <span class="icon-space"></span>
+      </header>
+      <div class="pad stack">
+        <div class="card stack own-node">
+          <label class="row node-row">
+            <span class="r-ic c5"><svg><use href="#i-node"/></svg></span><b data-i18n="node.mode">Node mode</b>
+            <input id="nodeMode" type="checkbox" class="switch" />
+          </label>
+          <p class="hint" data-i18n="node.why2">Use your own neptune-core for everything: syncing, sending and fast restore. No outside server learns your IP, when you are online, or which coins are yours.</p>
+          <label class="field"><span data-i18n="node.url">Node address</span>
+            <input id="nodeUrl" spellcheck="false" value="http://127.0.0.1:9797/" />
+          </label>
+          <div class="code-row"><code id="nodeCmd">neptune-core --listen-rpc --rpc-modules Node,Chain,Wallet,Utxoindex --utxo-index</code><button id="copyCmd" class="mini" data-i18n-aria="recv.copy" aria-label="Copy"><svg><use href="#i-copy"/></svg></button></div>
+          <p class="hint small" data-i18n="node.note2">Add --network testnet for Testnet. --utxo-index (and the Utxoindex module) is only needed for fast restore. Keep the RPC port on 127.0.0.1; never expose it to the internet.</p>
+          <ul id="nodeChecks" class="node-checks" hidden></ul>
+        </div>
+        <div id="srvNet" class="seg" role="tablist">
+          <button class="seg-btn" data-net="main" data-i18n="net.main">Mainnet</button>
+          <button class="seg-btn" data-net="testnet" data-i18n="net.testnet">Testnet</button>
+          <button class="seg-btn" data-net="testnet-mock" data-i18n="net.mockShort">Mock testnet</button>
+        </div>
+        <label class="field"><span data-i18n="srv.sync">Sync server</span>
+          <input id="setSync" spellcheck="false" placeholder="https://" />
+        </label>
+        <label class="field"><span data-i18n="srv.broadcast">Broadcast server</span>
+          <input id="setBroadcast" spellcheck="false" placeholder="https://" />
+          <small class="hint" data-i18n="srv.hint">A different operator here keeps any one server from seeing both your syncing and your payments.</small>
+        </label>
+        <div class="row2">
+          <button id="testServer" class="btn soft" data-i18n="srv.test">Test connection</button>
+          <button id="setSave" class="btn primary" data-i18n="common.save">Save</button>
+        </div>
+        <p id="setMsg" class="hint" role="status"></p>
+      </div>
+    </main>
+
+    <main id="v-tor" class="screen sub" hidden>
+      <header class="page-head">
+        <button class="icon tor-back" data-i18n-aria="common.back" aria-label="Back"><svg><use href="#i-back"/></svg></button>
+        <h2 data-i18n="tor.name">Tor</h2>
+        <span class="icon-space"></span>
+      </header>
+      <div class="pad stack">
+        <div id="torHero" class="tor-hero" data-state="off">
+          <span class="tor-orb"><svg><use href="#i-onion"/></svg></span>
+          <b id="torHeroTitle"></b>
+          <small id="torHeroSub"></small>
+        </div>
+
+        <div class="group">
+          <label class="row tor-row" id="torRow">
+            <span class="r-ic tor-ic"><svg><use href="#i-onion"/></svg></span>
+            <span class="row-text"><b class="row-b" data-i18n="tor.title">Connect through Tor</b><small id="torHint"></small></span>
+            <span class="light" id="torLight" data-s="off" aria-hidden="true"></span>
+            <input id="setTor" type="checkbox" class="switch" />
+          </label>
+          <label class="row" id="torPortRow">
+            <span class="r-ic c2"><svg><use href="#i-sliders"/></svg></span><span class="row-text"><b class="row-b" data-i18n="tor.port">Tor port</b><small data-i18n="tor.portHint">Tor Browser uses 9150; the tor service uses 9050</small></span>
+            <select id="setTorPort" class="pill" dir="ltr">
+              <option value="9150">9150</option>
+              <option value="9050">9050</option>
+            </select>
+          </label>
+        </div>
+        <button id="torCheck" class="btn soft" data-i18n="tor.check">Check connection</button>
+        <p id="torChecked" class="hint small center"></p>
+
+        <h3 class="sub-h" data-i18n="tor.routedTitle">What goes through Tor</h3>
+        <ul id="torHosts" class="node-checks"></ul>
+        <p class="hint small" data-i18n="tor.routedNote">Only these. Your node on this computer is reached directly, and the rest of Chrome is not touched. If Tor stops, the wallet stops connecting instead of using your IP.</p>
+
+        <h3 class="sub-h" data-i18n="tor.setupTitle">Set up Tor on your Mac</h3>
+        <ol class="tor-steps">
+          <li><b data-i18n="tor.s1Title">Easiest: Tor Browser</b><span data-i18n="tor.s1">Download it from torproject.org, open it and keep it open. Port 9150.</span></li>
+          <li><b data-i18n="tor.s2Title">Or the tor service (Homebrew)</b><span data-i18n="tor.s2">Runs in the background, no window. Port 9050.</span>
+            <div class="code-row"><code id="torCmd">brew install tor &amp;&amp; brew services start tor</code><button id="copyTorCmd" class="mini" data-i18n-aria="recv.copy" aria-label="Copy"><svg><use href="#i-copy"/></svg></button></div>
+          </li>
+          <li><b data-i18n="tor.s3Title">Then turn on Connect through Tor</b><span data-i18n="tor.s3">Chrome asks once to let the wallet set a proxy for its servers. The light turns green when requests arrive through Tor.</span></li>
+        </ol>
+        <p class="hint small" data-i18n="tor.limits">Through Tor, syncing is slower. A VPN or another proxy extension can block it. Using one server for both syncing and sending still lets it link them by timing.</p>
+      </div>
+    </main>
+
+    <main id="v-pcheck" class="screen sub" hidden>
+      <header class="page-head">
+        <button class="icon to-settings" data-i18n-aria="common.back" aria-label="Back"><svg><use href="#i-back"/></svg></button>
+        <h2 data-i18n="pc.title">Privacy check</h2>
+        <span class="icon-space"></span>
+      </header>
+      <div class="pad stack">
+        <div id="pcHero" class="pc-hero" data-s="info">
+          <span class="light big" aria-hidden="true"></span>
+          <div><b id="pcHeadline"></b><small id="pcSub"></small></div>
+        </div>
+        <ul id="pcList" class="pc-list"></ul>
+        <p class="hint small" data-i18n="pc.legend">Green: protected. Blue: worth knowing. Amber: something to improve. Red: not working as set.</p>
+      </div>
+    </main>
+
+    <main id="v-advanced" class="screen sub" hidden>
+      <header class="page-head">
+        <button class="icon to-settings" data-i18n-aria="common.back" aria-label="Back"><svg><use href="#i-back"/></svg></button>
+        <h2 data-i18n="set.advanced">Advanced</h2>
+        <span class="icon-space"></span>
+      </header>
+      <div class="pad stack">
+        <label class="field"><span data-i18n="adv.workers">Proving workers</span>
+          <select id="setWorkers">
+            <option value="auto" data-i18n="adv.workersAuto">Automatic</option>
+            <option value="1">1</option><option value="2">2</option>
+            <option value="3">3</option><option value="4">4</option>
+          </select>
+          <small class="hint" data-i18n="adv.workersHint">More workers prove faster but use more memory. Use fewer if sending fails.</small>
+        </label>
+        <label class="field"><span data-i18n="adv.lowMem">Low-memory proving</span>
+          <select id="setLowMem">
+            <option value="auto" data-i18n="adv.workersAuto">Automatic</option>
+            <option value="on" data-i18n="adv.lowMemOn">On: least memory, slower</option>
+            <option value="off" data-i18n="adv.lowMemOff">Off: fastest, most memory</option>
+          </select>
+          <small class="hint" data-i18n="adv.lowMemHint">Large proofs can skip keeping a stretched copy of their table in memory and recompute it instead. The proof is the same.</small>
+        </label>
+        <label class="row">
+          <span class="r-ic c5"><svg><use href="#i-shield"/></svg></span><span data-i18n="adv.exact">Exact privacy count</span>
+          <input id="setExact" type="checkbox" class="switch" />
+        </label>
+        <small class="hint" data-i18n="adv.exactHint">Keeps every block's spends (public data) so each coin's anonymity set is counted exactly. Reads the chain once in the background.</small>
+        <div class="field">
+          <span data-i18n="adv.lastProofs">Last proofs</span>
+          <p id="advProofs" class="hint" data-i18n="adv.noProofs">No payment proved on this device yet.</p>
+          <ol id="advProofList" class="proof-list" hidden></ol>
+        </div>
+        <dl class="summary">
+          <dt data-i18n="setup.network">Network</dt><dd id="advNetwork"></dd>
+          <dt data-i18n="adv.height">Wallet height</dt><dd id="advHeight"></dd>
+          <dt data-i18n="adv.since">Scanning since block</dt><dd id="advSince"></dd>
+        </dl>
+      </div>
+    </main>
+
+    <main id="v-watch" class="screen sub" hidden>
+      <header class="page-head">
+        <button id="watchBack" class="icon" data-i18n-aria="common.back" aria-label="Back"><svg><use href="#i-back"/></svg></button>
+        <h2 data-i18n="watch.title">Watch-only addresses</h2>
+        <span class="icon-space"></span>
+      </header>
+      <div class="pad stack">
+        <p class="hint" data-i18n="watch.intro"></p>
+        <p id="watchProgress" class="scan-banner" role="status" hidden></p>
+        <p id="watchScanError" class="err" role="alert"></p>
+        <button id="watchRetry" class="btn soft" data-i18n="watch.retry" hidden>Retry scan</button>
+        <label class="hidden-filter"><input id="watchShowHidden" type="checkbox" /><span data-i18n="watch.showHidden">Show hidden</span></label>
+        <div id="watchList" class="w-list"></div>
+        <p id="watchEmpty" class="empty-card" data-i18n="watch.empty" hidden></p>
+
+        <details id="watchAddBox" class="fold">
+          <summary><svg><use href="#i-plus"/></svg><span data-i18n="watch.add">Follow an address</span></summary>
+          <form id="watchForm" class="stack fold-body" autocomplete="off">
+            <label class="field"><span data-i18n="watch.contact">Saved contact (optional)</span><select id="watchContact"><option value="" data-i18n="watch.noContact">No contact</option></select></label>
+            <label class="field"><span data-i18n="watch.label">Name</span><input id="watchLabel" maxlength="40" data-i18n-ph="watch.labelPh" /></label>
+            <label class="field"><span data-i18n="watch.key">Viewing key</span><textarea id="watchKey" rows="3" spellcheck="false" class="mono" data-i18n-ph="watch.keyPh"></textarea></label>
+            <label class="field"><span data-i18n="watch.spend">Spend key (optional)</span><input id="watchSpend" spellcheck="false" class="mono" data-i18n-ph="watch.spendPh" /><small class="hint" data-i18n="watch.spendHint"></small></label>
+            <label class="field"><span data-i18n="watch.scanMode">Scan method</span><select id="watchMode"><option value="private" data-i18n="watch.modePrivate">Private · read every block</option><option value="fast" data-i18n="watch.modeFast">Fast Track · server index</option><option value="node" data-i18n="watch.modeNode">My node · server index</option></select><small id="watchModeHint" class="hint"></small></label>
+            <label id="watchNodeField" class="field" hidden><span data-i18n="watch.nodeUrl">Your node URL</span><input id="watchNodeUrl" type="url" placeholder="http://127.0.0.1:9799" spellcheck="false" /><small class="hint" data-i18n="watch.nodeHint">Run your node with --utxo-index and the utxoindex RPC module enabled.</small></label>
+            <div class="field"><span data-i18n="watch.from">Look from</span>
+              <div id="watchFromSeg" class="seg mini" role="radiogroup">
+                <button type="button" data-from="start" class="on" data-i18n="watch.fromStart"></button>
+                <button type="button" data-from="now" data-i18n="watch.fromNow"></button>
+                <button type="button" data-from="block" data-i18n="watch.fromBlock"></button>
+              </div>
+              <input id="watchFromBlock" type="number" min="1" inputmode="numeric" dir="ltr" hidden />
+            </div>
+            <p id="watchErr" class="err" role="alert"></p>
+            <button id="watchGo" class="btn primary" type="submit"><span data-i18n="watch.go">Follow</span></button>
+            <p id="watchWait" class="job-line" hidden></p>
+            <button id="watchCancel" class="btn plain" type="button" hidden><span data-i18n="job.cancel">Cancel</span></button>
+          </form>
+        </details>
+
+        <details id="vkBox" class="fold">
+          <summary><svg><use href="#i-key"/></svg><span data-i18n="watch.mineTitle">Your viewing keys</span></summary>
+          <div class="stack fold-body">
+            <p class="hint small" data-i18n="watch.mineHint"></p>
+            <form id="vkForm" class="stack" autocomplete="off">
+              <label class="field"><span data-i18n="phrase.enterPw">Enter your password</span><input id="vkPw" type="password" autocomplete="off" /></label>
+              <p id="vkErr" class="err" role="alert"></p>
+              <button id="vkGo" class="btn soft" type="submit"><span data-i18n="watch.mineShow">Show my viewing keys</span></button>
+            </form>
+            <div id="vkOut" class="stack" hidden></div>
+          </div>
+        </details>
+      </div>
+    </main>
+
+    <main id="v-claim" class="screen sub" hidden>
+      <header class="page-head">
+        <button class="icon to-settings" data-i18n-aria="common.back" aria-label="Back"><svg><use href="#i-back"/></svg></button>
+        <h2 data-i18n="claim.title">Register a payment</h2>
+        <span class="icon-space"></span>
+      </header>
+      <div class="pad stack">
+        <p class="hint" data-i18n="claim.intro"></p>
+        <label class="field"><span data-i18n="claim.paste">Payment code</span>
+          <textarea id="claimText" rows="3" spellcheck="false" class="mono" data-i18n-ph="claim.pastePh"></textarea>
+        </label>
+        <p id="claimErr" class="err" role="alert"></p>
+        <button id="claimRead" class="btn soft"><span data-i18n="claim.check">Read</span></button>
+        <div id="claimCard" class="claim-card" hidden>
+          <b id="claimAmount" class="claim-amt"></b>
+          <small id="claimLock"></small>
+          <small id="claimTo"></small>
+          <span id="claimStatus" class="claim-status"></span>
+          <button id="claimGo" class="btn primary"><span data-i18n="claim.register">Register</span></button>
+          <p id="claimWait" class="job-line" hidden></p>
+          <button id="claimCancel" class="btn plain" type="button" hidden><span data-i18n="job.cancel">Cancel</span></button>
+        </div>
+
+        <h3 class="sub-h" data-i18n="claim.waitingTitle">Waiting for their block</h3>
+        <ul id="claimWaiting" class="claim-list"></ul>
+        <p id="claimAdopted" class="hint small" hidden></p>
+
+        <h3 class="sub-h" data-i18n="claim.pastTitle">Confirmed before you registered it?</h3>
+        <p id="claimPast" class="hint small"></p>
+        <div class="rescan-row">
+          <input id="claimFrom" type="number" min="0" inputmode="numeric" dir="ltr" data-i18n-ph="claim.rescanFrom" />
+          <button id="claimRescan" class="btn soft"><span data-i18n="claim.rescanGo">Scan again</span></button>
+        </div>
+        <button id="claimRescanStart" class="btn plain"><span data-i18n="claim.rescanStart">From the beginning</span></button>
+
+        <h3 class="sub-h" data-i18n="claim.premineTitle">Premine allocation</h3>
+        <p class="hint small" data-i18n="claim.premineHint"></p>
+        <button id="claimPremine" class="btn soft"><span data-i18n="claim.premineGo">Look for premine coins</span></button>
+        <div id="premineProg" class="job-prog" hidden>
+          <div class="job-bar"><i id="premineBar"></i></div>
+          <p id="premineLine" class="job-line"></p>
+          <button id="premineCancel" class="btn plain" type="button"><span data-i18n="job.cancel">Cancel</span></button>
+        </div>
+        <p id="claimPremineOut" class="hint small center" hidden></p>
+      </div>
+    </main>
+
+    <main id="v-archive" class="screen sub" hidden>
+      <header class="page-head">
+        <button class="icon to-settings" data-i18n-aria="common.back" aria-label="Back"><svg><use href="#i-back"/></svg></button>
+        <h2 data-i18n="arch.title">Local archive</h2>
+        <span class="icon-space"></span>
+      </header>
+      <div class="pad stack">
+        <div id="archHero" class="arch-hero" data-state="off">
+          <svg class="arch-ring" viewBox="0 0 44 44" aria-hidden="true">
+            <circle class="track" cx="22" cy="22" r="19" pathLength="100"/>
+            <circle id="archArc" class="arc" cx="22" cy="22" r="19" pathLength="100"/>
+          </svg>
+          <span class="arch-ic"><svg><use href="#i-db"/></svg></span>
+          <b id="archHeroTitle"></b>
+          <small id="archHeroSub"></small>
+        </div>
+        <div class="group">
+          <label class="row">
+            <span class="r-ic c2"><svg><use href="#i-db"/></svg></span>
+            <span class="row-text"><b class="row-b" data-i18n="arch.switch">Keep the archive on this device</b><small id="archEstimate"></small></span>
+            <input id="setArchive" type="checkbox" class="switch" />
+          </label>
+        </div>
+        <p id="archErr" class="err" role="alert"></p>
+        <dl id="archFacts" class="arch-facts" hidden></dl>
+        <p id="archHow" class="hint small"></p>
+        <h3 class="sub-h" data-i18n="arch.gives">What it gives</h3>
+        <ul class="arch-gives">
+          <li data-i18n="arch.g1"></li>
+          <li data-i18n="arch.g2"></li>
+          <li data-i18n="arch.g3"></li>
+        </ul>
+        <p id="archLag" class="hint small"></p>
+        <p class="hint small" data-i18n="arch.vsNode"></p>
+        <button id="archCheck" class="btn soft" hidden><span data-i18n="arch.check">Check integrity</span></button>
+        <p id="archChecked" class="hint small center"></p>
+      </div>
+    </main>
+
+    <main id="v-about" class="screen sub" hidden>
+      <header class="page-head">
+        <button class="icon to-settings" data-i18n-aria="common.back" aria-label="Back"><svg><use href="#i-back"/></svg></button>
+        <h2 data-i18n="set.about">About</h2>
+        <span class="icon-space"></span>
+      </header>
+      <div class="welcome">
+        <img class="logo small" src="icons/icon256.png" alt="" />
+        <h2>Escanour Neptune Wallet</h2>
+        <p id="aboutVersion" class="hint"></p>
+        <p class="lede" data-i18n="about.text">A light wallet for Neptune Cash. It reads blocks from public servers, finds your coins on this device and proves your payments here. Your keys never leave this browser.</p>
+        <p class="hint small" data-i18n="about.price">Prices come from CoinGecko. Turn them off in Settings to stop those requests.</p>
+        <p class="hint small">© 2026 avotrom. All rights reserved.</p>
+      </div>
+    </main>
+
+    <!-- =============================== Sheets ============================== -->
+    <div id="scrim" class="scrim" hidden></div>
+
+    <section id="s-network" class="sheet" hidden aria-label="Network">
+      <header class="sheet-head"><h2 data-i18n="net.title">Network</h2><button class="icon close" data-i18n-aria="common.close" aria-label="Close"><svg><use href="#i-close"/></svg></button></header>
+      <div class="group">
+        <button class="row net-opt" data-net="main"><span class="r-ic c1"><svg><use href="#i-globe"/></svg></span><span><b data-i18n="net.main">Mainnet</b><small data-i18n="net.mainHint">Real NPT</small></span><svg class="tick"><use href="#i-check"/></svg></button>
+        <button class="row net-opt" data-net="testnet"><span class="r-ic c5"><svg><use href="#i-globe"/></svg></span><span><b data-i18n="net.testnet">Testnet</b><small data-i18n="net.testHint">Test coins with no value</small></span><svg class="tick"><use href="#i-check"/></svg></button>
+      </div>
+      <p class="hint" data-i18n="net.sameSeed">Same recovery phrase, separate balances and addresses on each network.</p>
+      <p id="netErr" class="err" role="alert"></p>
+    </section>
+
+    <section id="s-contact" class="sheet" hidden aria-label="Contact">
+      <header class="sheet-head"><h2 id="ctTitle">Contact</h2><button class="icon close" data-i18n-aria="common.close" aria-label="Close"><svg><use href="#i-close"/></svg></button></header>
+      <label class="field"><span data-i18n="ct.name">Name</span>
+        <input id="ctName" maxlength="40" autocomplete="off" />
+      </label>
+      <div class="field">
+        <div class="field-head"><label for="ctAddr" data-i18n="ct.address">Address</label><button type="button" id="ctPaste" class="chip" data-i18n="send.paste">Paste</button></div>
+        <textarea id="ctAddr" rows="3" spellcheck="false"></textarea>
+        <span id="ctKind" class="kind-chip" hidden></span>
+      </div>
+      <label class="field"><span data-i18n="ct.secondAddress">Second address (optional)</span><textarea id="ctAddr2" rows="3" spellcheck="false"></textarea><span id="ctKind2" class="kind-chip" hidden></span><small class="hint" data-i18n="ct.twoHint">Save one Generation and one EC Hybrid address under the same contact. Watch entries stay separate.</small></label>
+      <p id="ctErr" class="err" role="alert"></p>
+      <div class="row2">
+        <button id="ctDelete" class="btn soft danger-text" data-i18n="ct.delete">Delete</button>
+        <button id="ctSave" class="btn primary" data-i18n="common.save">Save</button>
+      </div>
+    </section>
+
+    <section id="s-pick" class="sheet tall" hidden aria-label="Choose a contact">
+      <header class="sheet-head"><h2 data-i18n="ct.choose">Choose a contact</h2><button class="icon close" data-i18n-aria="common.close" aria-label="Close"><svg><use href="#i-close"/></svg></button></header>
+      <input id="pickSearch" type="search" autocomplete="off" data-i18n-ph="ct.search" placeholder="Search" />
+      <ul id="pickList" class="contact-list group"></ul>
+    </section>
+
+    <section id="s-receive" class="sheet" hidden aria-label="Receive">
+      <header class="sheet-head"><h2 data-i18n="home.receive">Receive</h2><button class="icon close" data-i18n-aria="common.close" aria-label="Close"><svg><use href="#i-close"/></svg></button></header>
+      <div class="seg" role="tablist">
+        <button role="tab" data-kind="generation" class="seg-btn"><svg><use href="#i-shield"/></svg><span data-i18n="kind.generationShort">Post-quantum</span></button>
+        <button role="tab" data-kind="ec-hybrid" class="seg-btn"><svg><use href="#i-bolt"/></svg><span data-i18n="kind.ecHybridShort">Short</span></button>
+        <button id="receivePrivateApp" role="tab" data-kind="private-app" class="seg-btn" hidden data-i18n="private.tab">Private</button>
+      </div>
+      <div class="payment-indicators"><span id="receiveModeStatus" class="private-nav-status" role="status"></span><span id="receiveRotationStatus" class="private-nav-status" role="status"></span></div>
+      <p id="receiveAddressNumber" class="hint center"></p>
+      <div id="qrBox" class="qr"></div>
+      <p id="addrText" class="addr"></p>
+      <div class="row2">
+        <button id="copyAddr" class="btn primary"><svg><use href="#i-copy"/></svg><span data-i18n="recv.copy">Copy</span></button>
+        <button id="dlQr" class="btn soft"><svg><use href="#i-download"/></svg><span data-i18n="recv.downloadShort">Download</span></button>
+      </div>
+      <details class="opts"><summary data-i18n="recv.about">About this address</summary><p id="kindHint" class="hint"></p></details>
+      <button id="revealPrivateAddress" class="btn plain" hidden data-i18n="private.showAddress">Show address and QR</button>
+    </section>
+
+    <section id="s-send" class="sheet" hidden aria-label="Send">
+      <header class="sheet-head"><h2 data-i18n="home.send">Send</h2><button class="icon close" data-i18n-aria="common.close" aria-label="Close"><svg><use href="#i-close"/></svg></button></header>
+      <form id="sendForm" class="stack" autocomplete="off">
+        <div id="sendMode" class="seg" role="radiogroup" aria-label="Notification mode">
+          <button type="button" data-mode="standard" class="seg-btn on" role="radio" aria-checked="true" data-i18n="private.standard">Standard</button>
+          <button type="button" id="sendPrivateMode" data-mode="private" class="seg-btn" role="radio" aria-checked="false" data-i18n="private.mode">Private notification</button>
+        </div><p id="sendModeStatus" class="private-nav-status" role="status"></p>
+        <details class="opts"><summary data-i18n="private.aboutMode">About notification mode</summary><p id="sendModeHint" class="hint"></p></details>
+        <div class="field">
+          <div class="field-head"><label for="sendTo" data-i18n="send.to">To</label>
+            <span class="chips">
+              <button type="button" id="pickTo" class="chip"><svg><use href="#i-users"/></svg><span data-i18n="ct.title">Contacts</span></button>
+              <button type="button" id="pasteTo" class="chip" data-i18n="send.paste">Paste</button>
+              <button type="button" id="importTo" class="chip"><svg><use href="#i-scan"/></svg><span data-i18n="send.import">Import QR</span></button>
+            </span>
+          </div>
+          <div id="dropZone" class="drop">
+            <textarea id="sendTo" rows="2" spellcheck="false" data-i18n-ph="send.toPh" placeholder="Paste a Neptune address, or drop a QR picture"></textarea>
+          </div>
+          <span id="toKind" class="kind-chip" hidden></span>
+          <input id="importFile" type="file" accept="image/*,.txt,text/plain" hidden />
+        </div>
+        <div class="field">
+          <div class="field-head"><label for="sendAmount" data-i18n="send.amount">Amount</label><small id="availHint" class="hint"></small></div>
+          <div class="input-row">
+            <input id="sendAmount" inputmode="decimal" placeholder="0.00" />
+            <button type="button" id="maxBtn" class="chip" data-i18n="send.max">Max</button>
+          </div>
+        </div>
+        <details id="sendEncryptedBox" class="private-message-field" hidden>
+          <summary data-i18n="private.message">Encrypted message to recipient (optional)</summary>
+          <textarea id="sendEncryptedMessage" rows="3" maxlength="512" autocomplete="off" spellcheck="false" data-i18n-aria="private.messageShort" aria-label="Encrypted message"></textarea>
+          <small id="encryptedMessageCount" class="hint" dir="ltr">0 / 512 bytes</small><p class="hint" data-i18n="private.messageHint">Inside the same padded envelope. Recovered with the payment after a seed restore. The recipient cannot verify who wrote it.</p>
+        </details>
+        <div class="send-fee-line"><span data-i18n="send.fee">Fee</span><span id="sendFeeSummary">0.05 NPT</span></div>
+        <details class="opts"><summary data-i18n="send.options">Options</summary><div class="stack send-options">
+        <label class="field"><span data-i18n="note.label">Note, only for you</span>
+          <input id="sendNote" maxlength="200" autocomplete="off" data-i18n-ph="note.ph" placeholder="Rent, paid Ali…" />
+        </label>
+        <div class="field"><span data-i18n="send.from">Pay from</span>
+          <div id="fromSeg" class="seg three" role="radiogroup">
+            <button type="button" class="seg-btn on" data-from="any" data-i18n="send.fromAny">All</button>
+            <button type="button" class="seg-btn" data-from="generation"><svg><use href="#i-shield"/></svg><span data-i18n="kind.generationShort">Post-quantum</span></button>
+            <button type="button" class="seg-btn" data-from="ec-hybrid"><svg><use href="#i-bolt"/></svg><span data-i18n="kind.ecHybridShort">Short</span></button>
+          </div>
+        </div>
+        <div class="field"><span data-i18n="send.fee">Fee</span>
+          <div class="seg three fees" role="radiogroup">
+            <button type="button" class="seg-btn fee" data-fee="0.02"><span data-i18n="fee.low">Low</span><small>0.02</small></button>
+            <button type="button" class="seg-btn fee on" data-fee="0.05"><span data-i18n="fee.normal">Normal</span><small>0.05</small></button>
+            <button type="button" class="seg-btn fee" data-fee="0.2"><span data-i18n="fee.fast">Fast</span><small>0.2</small></button>
+          </div>
+        </div>
+        </div></details>
+        <p id="sendErr" class="err" role="alert"></p>
+        <button id="reviewBtn" type="submit" class="btn primary" data-i18n="send.review">Review</button>
+      </form>
+    </section>
+
+    <section id="s-review" class="sheet" hidden aria-label="Review">
+      <header class="sheet-head"><h2 data-i18n="review.title">Confirm payment</h2><button class="icon close" data-i18n-aria="common.close" aria-label="Close"><svg><use href="#i-close"/></svg></button></header>
+      <p id="rvBig" class="tx-big center"></p>
+      <dl class="summary">
+        <dt data-i18n="send.to">To</dt><dd><span id="rvKind" class="kind-chip"></span><span id="rvTo" class="mono block"></span></dd>
+        <dt data-i18n="send.from">Pay from</dt><dd id="rvFrom"></dd>
+        <dt id="rvMessageT" data-i18n="private.messageShort">Encrypted message</dt><dd id="rvMessage" class="private-message-text"></dd>
+        <dt id="rvNoteT" data-i18n="note.title">Note</dt><dd id="rvNote"></dd>
+        <dt data-i18n="send.fee">Fee</dt><dd id="rvFee"></dd>
+        <dt class="total" data-i18n="review.total">Total</dt><dd id="rvTotal" class="total"></dd>
+      </dl>
+      <p class="hint" data-i18n="review.change">If a coin is larger than the payment, the rest comes back to you as change when the payment is confirmed.</p>
+      <p class="hint" data-i18n="review.hint">Your computer proves this payment before sending. It can take several minutes; you can close this window.</p>
+      <button id="confirmSend" class="btn primary" data-i18n="review.go">Send payment</button>
+    </section>
+
+    <section id="s-progress" class="sheet" hidden aria-label="Sending">
+      <header class="sheet-head"><h2 id="pgTitle">Sending</h2><button class="icon close" data-i18n-aria="common.close" aria-label="Close"><svg><use href="#i-close"/></svg></button></header>
+      <p id="pgPrivateMode" class="private-mode-indicator" hidden data-i18n="private.progress">Private notification · message sealed before proving</p>
+      <ol class="steps">
+        <li data-step="wait"><span></span><i data-i18n="pg.wait">Waiting for a fresh block</i></li>
+        <li data-step="build"><span></span><i data-i18n="pg.build">Building the transaction</i></li>
+        <li data-step="prove"><span></span><i data-i18n="pg.prove">Proving on this computer</i> <em id="pgCount"></em></li>
+        <li data-step="send"><span></span><i data-i18n="pg.send">Broadcasting</i></li>
+        <li data-step="done"><span></span><i data-i18n="pg.done">Sent</i></li>
+      </ol>
+      <div class="bar-track"><div id="pgBar"></div></div>
+      <p id="pgDetail" class="hint"></p>
+      <div id="lustrationBox" class="note warn" hidden>
+        <p data-i18n="pg.lustration">Some of your coins are old enough that Neptune's lustration rule requires their amount to be published. The amount becomes visible on-chain; your addresses do not.</p>
+        <button id="lustrationOk" class="btn primary" data-i18n="pg.lustrationOk">Publish amount and continue</button>
+      </div>
+      <p id="pgErr" class="err" role="alert"></p>
+      <button id="pgCancel" class="btn soft danger-text" hidden data-i18n="pg.cancel">Cancel payment</button>
+      <div id="pgActions" class="row2" hidden>
+        <button id="pgDismiss" class="btn soft" data-i18n="pg.dismiss">Close</button>
+        <button id="pgRetry" class="btn primary" data-i18n="pg.retry">Try again</button>
+      </div>
+    </section>
+
+    <section id="s-tx" class="sheet" hidden aria-label="Transaction">
+      <header class="sheet-head"><h2 id="txTitle">Payment</h2><button class="icon close" data-i18n-aria="common.close" aria-label="Close"><svg><use href="#i-close"/></svg></button></header>
+      <p id="txAmount" class="tx-big center"></p>
+      <dl id="txDetails" class="summary"></dl>
+      <p id="txProtectionWarning" class="err" role="alert" hidden data-i18n="private.downgradeDetails">A standard receiver-ID notification was also found for this payment. Funds remain yours, but the receiver identifier was public. This cannot be undone after confirmation.</p>
+      <div id="txEncryptedBox" class="private-message-field" hidden><b data-i18n="private.messageShort">Encrypted message</b><p id="txEncryptedMessage" class="private-message-text"></p><small class="hint" data-i18n="private.untrusted">Message text is untrusted. Sender identity is not verified.</small></div>
+      <p id="txNote" class="hint" hidden></p>
+      <label class="field"><span data-i18n="note.label">Note, only for you</span>
+        <textarea id="txNoteInput" rows="2" maxlength="200" data-i18n-ph="note.ph" placeholder="Rent, paid Ali…"></textarea>
+      </label>
+      <button id="txSaveContact" class="btn soft" hidden><svg><use href="#i-users"/></svg><span data-i18n="ct.saveThis">Save as contact</span></button>
+    </section>
+
+    <section id="s-privacy" class="sheet tall" hidden aria-label="Privacy">
+      <header class="sheet-head"><h2 data-i18n="pv.title">Privacy</h2><button class="icon close" data-i18n-aria="common.close" aria-label="Close"><svg><use href="#i-close"/></svg></button></header>
+      <div class="pv-hero">
+        <svg class="pv-ring" viewBox="0 0 100 100" aria-hidden="true">
+          <circle class="track" cx="50" cy="50" r="44" />
+          <circle id="pvArc" class="arc" cx="50" cy="50" r="44" pathLength="100" />
+        </svg>
+        <div class="pv-center"><b id="pvNumber">–</b><small data-i18n="pv.coins">coins</small></div>
+      </div>
+      <p id="pvHeadline" class="center pv-headline"></p>
+      <ul id="pvChecks" class="pv-checks"></ul>
+      <details class="opts">
+        <summary data-i18n="pv.howTitle">How this is measured</summary>
+        <p class="hint" data-i18n="pv.how">When you spend a coin, the network sees 45 positions in the mutator set's Bloom filter. Those positions narrow the coin's origin down to a range of receipts, but not to one: any receipt in the range could be yours. The number above is the size of that range for your least hidden coin, computed with Neptune's own rule (AbsoluteIndexSet::aocl_range). Amounts and addresses are never visible on-chain.</p>
+      </details>
+      <ul id="pvCoins" class="pv-coins"></ul>
+    </section>
+
+    <section id="s-history" class="sheet tall" hidden aria-label="History">
+      <header class="sheet-head"><h2 data-i18n="home.history">History</h2><button class="icon close" data-i18n-aria="common.close" aria-label="Close"><svg><use href="#i-close"/></svg></button></header>
+      <ul id="historyAll" class="tx-list"></ul>
+    </section>
+
+    <div id="toast" class="toast" role="status" hidden></div>
+
+    <script type="module" src="popup.js"></script>
+  </body>
+</html>

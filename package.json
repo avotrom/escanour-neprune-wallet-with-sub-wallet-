@@ -1,0 +1,9 @@
+{
+  "name": "escanour-extension-checks",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "test": "node --test tests/*.test.mjs",
+    "check": "node tests/check-syntax.mjs"
+  }
+}

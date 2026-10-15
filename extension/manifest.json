@@ -1,0 +1,55 @@
+{
+  "manifest_version": 3,
+  "name": "Escanour Neptune Wallet",
+  "short_name": "Escanour",
+  "version": "0.22.0",
+  "author": "avotrom",
+  "description": "Private light wallet for Neptune Cash. Syncs from public nodes without telling them which coins are yours; proves transactions on your device.",
+  "icons": {
+    "16": "icons/icon16.png",
+    "32": "icons/icon32.png",
+    "48": "icons/icon48.png",
+    "128": "icons/icon128.png"
+  },
+  "minimum_chrome_version": "116",
+  "action": {
+    "default_title": "Escanour Neptune Wallet",
+    "default_icon": {
+      "16": "icons/icon16.png",
+      "32": "icons/icon32.png",
+      "48": "icons/icon48.png",
+      "128": "icons/icon128.png"
+    }
+  },
+  "background": {
+    "service_worker": "background.js",
+    "type": "module"
+  },
+  "permissions": [
+    "storage",
+    "alarms",
+    "offscreen",
+    "unlimitedStorage",
+    "notifications",
+    "sidePanel",
+    "proxy"
+  ],
+  "host_permissions": [
+    "https://wallet.neptunefundamentals.org/*",
+    "https://api.coingecko.com/*",
+    "https://check.torproject.org/*"
+  ],
+  "optional_host_permissions": [
+    "https://*/*",
+    "http://localhost/*",
+    "http://127.0.0.1/*"
+  ],
+  "content_security_policy": {
+    "extension_pages": "script-src 'self' 'wasm-unsafe-eval'; object-src 'self'"
+  },
+  "web_accessible_resources": [],
+  "side_panel": {
+    "default_path": "popup.html?view=panel"
+  },
+  "version_name": "0.22.0 private notification prototype"
+}
