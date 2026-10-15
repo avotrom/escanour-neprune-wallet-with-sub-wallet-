@@ -1,0 +1,60 @@
+# Paste this into GitHub: Actions -> "set up a workflow yourself" -> commit.
+# (It must live at .github/workflows/; GitHub creates that folder for you.)
+#
+# Builds the extension on GitHub's servers: nothing to install locally.
+# Result: an "neptune-light-extension" download on the workflow run page.
+# If the build fails, the "Check" step's log shows the compiler errors.
+name: build
+
+on:
+  push:
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: JavaScript checks and regression tests
+        run: |
+          node tests/check-syntax.mjs
+          node --test tests/*.test.mjs
+
+      - name: Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: wasm32-unknown-unknown
+
+      - name: Cache
+        uses: Swatinem/rust-cache@v2
+
+      - name: Install wasm-pack
+        run: cargo install wasm-pack --locked
+
+      - name: Make scripts executable
+        run: chmod +x scripts/*.sh
+
+      - name: Vendor neptune-core and apply the wasm patch
+        run: scripts/vendor-neptune.sh
+
+      - name: Check (native + wasm32)
+        run: scripts/check-wasm.sh 2>&1 | tee check.log; exit ${PIPESTATUS[0]}
+
+      - name: Build wasm modules
+        run: scripts/build.sh
+
+      - name: Upload the extension
+        uses: actions/upload-artifact@v4
+        with:
+          name: neptune-light-extension
+          path: extension/
+
+      - name: Upload the check log
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: check-log
+          path: check.log
+          if-no-files-found: ignore
