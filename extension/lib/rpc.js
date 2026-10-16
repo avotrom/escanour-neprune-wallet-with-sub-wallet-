@@ -17,6 +17,58 @@ export function id() {
   return nextId++;
 }
 
+const poolWrites=new Map();
+const READ_METHODS=new Set(['chain_height','wallet_getBlocks','wallet_restoreMembershipProof','utxoindex_blockHeightsByFlags','utxoindex_blockHeightsByAbsoluteIndexSets','node_network']);
+function poolConfig(s,network) {
+  const srv=s.servers?.[network]||{};
+  const nodes=[srv.sync,srv.fallback].filter(Boolean).map(normalizeServer);
+  const enabled=srv.randomFallback===true&&nodes.length===2&&nodes[0]!==nodes[1];
+  return {nodes,enabled,signature:JSON.stringify([enabled,...nodes])};
+}
+function poolLock(network,fn) {
+  const pending=(poolWrites.get(network)||Promise.resolve()).then(fn,fn);
+  poolWrites.set(network,pending.catch(()=>{}));return pending;
+}
+async function poolState(s,network,failed) {
+  return poolLock(network,async()=>{
+    const cfg=poolConfig(s,network),key=`nodeSession:${network}`;
+    if(!cfg.enabled)return {...cfg,index:0,url:cfg.nodes[0]||'',label:'A'};
+    const old=(await chrome.storage.session.get(key))[key];
+    let index=old?.signature===cfg.signature&&[0,1].includes(old.index)?old.index:crypto.getRandomValues(new Uint8Array(1))[0]&1;
+    if(failed&&cfg.nodes[index]===failed)index=1-index;
+    await chrome.storage.session.set({[key]:{signature:cfg.signature,index}});
+    return {...cfg,index,url:cfg.nodes[index],label:index===0?'A':'B'};
+  });
+}
+export async function nodeSession(s,network=s.network) {return poolState(s,network);}
+export async function resetNodeSession(network) {return poolLock(network,()=>chrome.storage.session.set({[`nodeSession:${network}`]:null}));}
+function canFailOver(error) {
+  const m=String(error?.message||error);
+  return !error?.nodeRejected&&!/SCAN_INTERRUPTED|Tor is not connected/.test(m)
+    &&(error?.name==='AbortError'||error instanceof TypeError||/Failed to fetch|NetworkError|timed out|HTTP 5\d\d|NODE_BAD_RESPONSE/i.test(m));
+}
+/** Retry only known read operations, once, through the configured peer. */
+export async function read(url,body,options={}) {
+  let method;try{method=JSON.parse(body).method;}catch{}
+  if(!READ_METHODS.has(method))return post(url,body,options);
+  const s=await loadSettings(),network=s.network,cfg=poolConfig(s,network);
+  if(!cfg.enabled||!cfg.nodes.includes(normalizeServer(url)))return post(url,body,options);
+  const first=await poolState(s,network);
+  const get=async endpoint=>{
+    const text=await post(endpoint,body,options);
+    try{JSON.parse(text);}catch{throw new Error('NODE_BAD_RESPONSE: invalid JSON from node');}
+    return text;
+  };
+  try{return await get(first.url);}
+  catch(e) {
+    if(!canFailOver(e))throw e;
+    const current=await loadSettings();
+    if(current.network!==network||poolConfig(current,network).signature!==cfg.signature)throw e;
+    const next=await poolState(current,network,first.url);
+    return get(next.url);
+  }
+}
+
 // Shared by the worker and offscreen broadcaster. If Tor is requested but
 // unavailable, remote RPC traffic must not fall back to a direct connection.
 export async function assertRoute(url) {

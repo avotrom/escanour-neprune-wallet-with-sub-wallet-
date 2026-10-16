@@ -1,0 +1,17 @@
+# 0.23.4-alpha.1 — refresh, recovery, sending and node fallback
+
+Refresh assets no longer waits for an entire scan, archive or index run. It acknowledges the background request, bounds an unanswered reply to eight seconds, releases on navigation/lock and never announces unverified assets as updated. The local UI preview now completes its simulated recoveries and publishes consistent progress events.
+
+Advanced adds Wait for a fresh block, off by default. Older prototypes forced this setting; their implicit default is migrated off. Explicit new choices persist. Node checking, transaction building and proving have distinct progress stages. The foreground tip check skips unrelated archive/index work. Proof and broadcast checks remain in place; live transaction speed was not measured.
+
+Sending cards refresh with the selected sub-wallet and reject foreign profile/network records. Proof progress must match the current send ID. Cancel/dismiss/amount-disclosure actions check the owning wallet. A cancelled send remains cancelled when a late tip-check failure arrives.
+
+Recover assets now saves a method per sub-wallet on selection, shows scoped progress, and offers Stop scan, Resume scan and Switch method. An encrypted pre-rewind checkpoint enables Fast after Private without forcing known receipts into the waiting-code fallback. Other-wallet proofs are advanced locally before merging. Errors from an interrupted run commit before releasing the lock, so they cannot overwrite a new scan. Genuine pending codes and unsupported indexes can still require a clearly labelled Private scan.
+
+Servers adds optional Random node with fallback. Configure two distinct nodes on the same network. A cryptographic random bit chooses A or B for the browser session; successful reads keep that node, and a transport/server failure tries the other once. Requests remain on the fallback afterward. Session state survives worker restarts; changing server configuration or restarting the browser permits a new choice. With the option off, Node A is used. A separate broadcast address remains an override; otherwise sending uses the selected session node. Transaction uploads are never automatically replayed.
+
+Both configured nodes receive Tor routes before new hosts become eligible. Own node mode clears public fallback. Privacy reporting includes both fallback operators, since each can learn indexed lookup identifiers if contacted. Random selection improves availability; it does not authenticate consensus or increase anonymity by itself.
+
+Validation: 119 JavaScript regression tests and 14 separate preview checks passed; syntax covers 15 JS files and 478 unique popup IDs. Browser checks cover refresh, stop/switch/finish, the Advanced default and send-card scope using fake data. Rust wallet/proof code is unchanged; its earlier 24 passing local tests and native/WASM compile checks were not rerun for this JavaScript patch. No real funds, seed, payment or proof benchmark was used.
+
+One scanner, chain accumulator and outgoing-payment engine remain shared. Recovery UI progress is session metadata, while coin checkpoints are encrypted on disk. This is experimental source, without fresh release WASM binaries or installed-extension/live-node acceptance. Node trust, response-size bounds and the unaudited encrypted protocol remain open as described in [docs/SECURITY.md](docs/SECURITY.md). Details: [docs/BUG-REVIEW-0.23.4.md](docs/BUG-REVIEW-0.23.4.md). GitHub Actions still skips light-core Rust unit tests as requested.

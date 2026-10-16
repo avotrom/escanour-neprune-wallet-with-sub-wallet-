@@ -54,7 +54,7 @@ if (IN_PANEL) document.body.classList.add('in-panel');
 
 // ------------------------------------------------------------ messaging ---
 
-const RETRY_SAFE = new Set(['state','home','summary','activity','contacts','receive','addressHistory','privacy','price','torStatus','watchList','waiting','archiveStatus','proofReport','latestSend','addressInfo','qr','checkPhrase','heightForDate','testServer']);
+const RETRY_SAFE = new Set(['state','home','summary','activity','contacts','receive','addressHistory','privacy','price','torStatus','watchList','waiting','archiveStatus','proofReport','latestSend','addressInfo','qr','checkPhrase','heightForDate','testServer','nodeSession']);
 async function call(cmd, args) {
   // The service worker may be asleep: retry briefly while it wakes up.
   for (let attempt = 0; attempt < 4; attempt++) {
@@ -76,6 +76,7 @@ async function call(cmd, args) {
 
 function showScreen(name) {
   if(name!==currentScreen) {
+    cancelAssetRefresh();
     secretEpoch++;
     if(currentScreen==='phrase') {revealed='';$('revealGrid').textContent='';$('revealPw').value='';$('revealBox').hidden=true;$('revealForm').hidden=false;}
     if(currentScreen==='watch') {$('vkOut').textContent='';$('vkOut').hidden=true;$('vkPw').value='';}
@@ -382,6 +383,9 @@ async function refreshHome() {
   }
   if(request!==homeRequest||!app?.unlocked||app.settings.network!==network||activeMode(app.settings)!==profile||secretEpoch!==epoch||(h.profile&&h.profile!==profile))return false;
   contacts = h.contacts || [];
+  if(h.recoveries)app.recoveries=h.recoveries;
+  app.send=h.send||null;renderSendCard(app.send);
+  if(lastSend&&!sendBelongsHere(lastSend))lastSend=null;
   if (app && h.height != null) app.status = { ...app.status, height: h.height };
   $('hideAssets').textContent = t(app?.settings?.hideAssets ? 'watch.showAmounts' : 'watch.hideAmounts');
   $('hideAssets').setAttribute('aria-pressed', String(Boolean(app?.settings?.hideAssets)));
@@ -681,6 +685,11 @@ function renderStatus(st) {
     state = 'bad';
     title = t('status.noServer');
     sub = t('status.addServer');
+  } else if (st.scanPaused) {
+    title=t('assets.paused');sub=t('assets.resumeHint');
+  } else if (st.checking && !(st.height < st.tip) && !st.fastPending) {
+    title = t('status.connecting');
+    sub = t('status.reaching');
   } else if (st.serverOk === false) {
     state = 'bad';
     title = t('status.unreachable');
@@ -728,20 +737,39 @@ function renderStatus(st) {
 }
 
 let assetsRefreshing=false;
+const ASSET_REFRESH_TIMEOUT_MS=8000;
+function cancelAssetRefresh() {
+  const request=assetsRefreshing;
+  if(!request)return;
+  assetsRefreshing=false;
+  request.cancel();
+  $('refreshAssets').disabled=false;
+  $('refreshAssets').setAttribute('aria-busy','false');
+}
 async function refreshAssetsNow() {
   if(!app?.unlocked||assetsRefreshing)return;
   if(app.status?.error==='NEED_SERVER')return openServers(app.settings.network);
   const network=app.settings.network, profile=activeMode(app.settings),epoch=secretEpoch;
-  const current=()=>app?.unlocked&&app.settings.network===network&&activeMode(app.settings)===profile&&secretEpoch===epoch;
-  assetsRefreshing=true;const button=$('refreshAssets');button.disabled=true;button.setAttribute('aria-busy','true');
+  const request={cancel:()=>{}};
+  const current=()=>assetsRefreshing===request&&app?.unlocked&&app.settings.network===network&&activeMode(app.settings)===profile&&secretEpoch===epoch;
+  assetsRefreshing=request;const button=$('refreshAssets');button.disabled=true;button.setAttribute('aria-busy','true');
+  let timer;
   try {
-    const state=await call('sync');if(!current())return;
-    app.status=state||app.status;renderStatus(app.status);
-    if(app.status?.error||app.status?.serverOk===false)throw new Error(app.status.error||t('status.unreachable'));
-    const updated=await refreshHome();if(!updated&&current())throw new Error(t('home.refreshFailed'));
-    if(current())toast(t(app.status?.syncing||app.status?.fastPending?'home.refreshRunning':'home.refreshed'));
+    // Acknowledge the request, not the entire scan. Status/activity events
+    // update the balance when checked blocks arrive. Never claim a balance
+    // is current just because the background task was queued.
+    const response=await Promise.race([
+      call('requestSync',{networkContext:network}),
+      new Promise((resolve,reject)=>{
+        request.cancel=()=>resolve(null);
+        timer=setTimeout(()=>reject(new Error(t('home.refreshTimeout'))),ASSET_REFRESH_TIMEOUT_MS);
+      }),
+    ]);
+    if(!current()||!response)return;
+    if(response.network!==network||response.queued!==true)throw new Error(t('home.refreshFailed'));
+    toast(t('home.refreshRequested'));
   }catch(e){if(current())toast(String(e.message||e));}
-  finally{assetsRefreshing=false;button.disabled=false;button.setAttribute('aria-busy','false');}
+  finally{clearTimeout(timer);if(assetsRefreshing===request)cancelAssetRefresh();}
 }
 $('statusBtn').onclick=$('refreshAssets').onclick=refreshAssetsNow;
 
@@ -1579,6 +1607,7 @@ $('sendForm').onsubmit = async (ev) => {
   $('rvFee').textContent = `${fee} NPT`;
   $('rvTotal').textContent = `${addDec(amount, fee)} NPT`;
   $('confirmSend').dataset.walletMode = activeMode(app.settings);
+  $('confirmSend').dataset.network=app.settings.network;
   $('confirmSend').dataset.to = to;
   $('confirmSend').dataset.amount = amount;
   openSheet('review');
@@ -1587,15 +1616,17 @@ $('sendForm').onsubmit = async (ev) => {
 $('confirmSend').onclick = async () => {
   const b = $('confirmSend');
   busy(b, true);
+  const epoch=secretEpoch,network=app.settings.network,profile=activeMode(app.settings);
   try {
-    await call('send', { walletMode:b.dataset.walletMode, to: b.dataset.to, amount: b.dataset.amount, fee, fromKind, note: $('sendNote').value.trim(), notificationMode: sendNotificationMode, privateMessage: sendNotificationMode === 'private' ? $('sendEncryptedMessage').value : '', waitForFreshBlock: true });
+    const id=await call('send', { networkContext:b.dataset.network,walletMode:b.dataset.walletMode, to: b.dataset.to, amount: b.dataset.amount, fee, fromKind, note: $('sendNote').value.trim(), notificationMode: sendNotificationMode, privateMessage: sendNotificationMode === 'private' ? $('sendEncryptedMessage').value : '', waitForFreshBlock: app.settings.waitForFreshBlock===true });
+    if(!app?.unlocked||secretEpoch!==epoch||app.settings.network!==network||activeMode(app.settings)!==profile)return;
     $('sendTo').value = '';
     $('sendNote').value = '';
     $('sendEncryptedMessage').value = '';
     updateEncryptedMessageCount();
     $('sendAmount').value = '';
     $('toKind').hidden = true;
-    renderProgress({ status: 'starting', amount: b.dataset.amount, toKind: sendNotificationMode === 'private' ? 'private-app' : null });
+    renderProgress(app.send?.id===id?app.send:{id,status:'starting',network:app.settings.network,walletMode:b.dataset.walletMode,amount:b.dataset.amount,waitForFreshBlock:app.settings.waitForFreshBlock===true,toKind:sendNotificationMode==='private'?'private-app':null});
     openSheet('progress');
   } catch (e) {
     toast(String(e.message || e));
@@ -1607,27 +1638,31 @@ $('confirmSend').onclick = async () => {
 // ------------------------------------------------------------- progress ---
 
 const STEP_OF = {
-  starting: 'wait', 'waiting-block': 'wait', preparing: 'build', rebuilding: 'build',
+  starting: 'check', 'waiting-block': 'wait', checking:'check', preparing: 'build', rebuilding: 'build',
   proving: 'prove', proved: 'send', submitting: 'send', uncertain: 'send', done: 'done',
 };
-const ORDER = ['wait', 'build', 'prove', 'send', 'done'];
+const ORDER = ['wait', 'check', 'build', 'prove', 'send', 'done'];
+const sendSteps=s=>ORDER.filter(step=>step!=='wait'||s.waitForFreshBlock===true||s.status==='waiting-block');
 
 function progressPct(s) {
   const current = STEP_OF[s.status];
-  const idx = ORDER.indexOf(current);
+  const steps=sendSteps(s),idx=steps.indexOf(current);
   const total = s.jobCount || 0;
   if (s.status === 'done') return 100;
   if (idx < 0) return 0;
-  return (idx / 4) * 100 + (current === 'prove' && total ? ((s.jobsDone || 0) / total) * 25 : 0);
+  const span=100/(steps.length-1);
+  return idx*span+(current==='prove'&&total?((s.jobsDone||0)/total)*span:0);
 }
 
+function sendBelongsHere(s) {return Boolean(s)&&(!s.network||s.network===app?.settings?.network)&&(s.walletMode||'standard')===activeMode(app?.settings||{});}
 function renderProgress(s) {
+  if(!sendBelongsHere(s))return;
   lastSend = s;
   $('pgPrivateMode').hidden = s.toKind !== 'private-app';
   const current = STEP_OF[s.status];
-  const idx = ORDER.indexOf(current);
+  const steps=sendSteps(s),idx=steps.indexOf(current);
   for (const li of document.querySelectorAll('.steps li')) {
-    const i = ORDER.indexOf(li.dataset.step);
+    const i=steps.indexOf(li.dataset.step);li.hidden=i<0;
     li.classList.toggle('done', idx > i || s.status === 'done');
     li.classList.toggle('active', i === idx && s.status !== 'done');
   }
@@ -1636,7 +1671,7 @@ function renderProgress(s) {
   $('pgBar').style.width = `${Math.round(progressPct(s))}%`;
   $('pgTitle').textContent = s.status==='uncertain' ? t('pg.unknown') : s.toKind === 'private-app' && !['done', 'failed'].includes(s.status) ? t('private.sending') : s.status === 'done' ? t('pg.done') : s.status === 'failed' ? t('pg.notSent') : t('pg.sending');
   $('pgDetail').textContent =
-    s.status === 'preparing' && s.toKind === 'private-app' ? t('private.encrypting') : s.status === 'rebuilding' ? t('pg.rebuilding', { n: s.attempt })
+    s.status==='checking'||s.status==='starting'?t('pg.checking'):s.status==='preparing'?t(s.toKind==='private-app'?'private.encrypting':'pg.buildHint') : s.status === 'rebuilding' ? t('pg.rebuilding', { n: s.attempt })
       : s.status === 'uncertain' ? t('pg.unknownHint') : s.status === 'done' ? t('pg.confirmSoon')
         : s.status === 'submitting' || s.status === 'proved' ? t('pg.uploading')
           : s.lastJob ? t('pg.finished', { job: s.lastJob }) : '';
@@ -1673,7 +1708,7 @@ $('pgRetry').onclick = async () => {
 };
 
 /** Before the payment reaches the network it can still be stopped. */
-const CANCELLABLE = ['starting', 'waiting-block', 'preparing', 'rebuilding', 'proving', 'needs-lustration'];
+const CANCELLABLE = ['starting', 'waiting-block', 'checking', 'preparing', 'rebuilding', 'proving', 'needs-lustration'];
 
 $('pgCancel').onclick = async () => {
   if (!lastSend?.id || !confirm(t('pg.cancelConfirm'))) return;
@@ -1692,15 +1727,15 @@ $('pgCancel').onclick = async () => {
 };
 
 const STEP_LABEL = {
-  starting: 'pg.wait', 'waiting-block': 'pg.wait', preparing: 'pg.build', rebuilding: 'pg.build',
+  starting: 'pg.checking', 'waiting-block': 'pg.wait', checking:'pg.checking', preparing: 'pg.build', rebuilding: 'pg.build',
   proving: 'pg.prove', proved: 'pg.send', submitting: 'pg.send', uncertain: 'pg.unknown', done: 'pg.done', failed: 'pg.notSent', 'needs-lustration': 'pg.needsOk',
 };
 
 function renderSendCard(send) {
   const card = $('sendCard');
   const ended = send && ['done', 'failed'].includes(send.status);
-  if (!send || send.dismissed || send.status === 'cancelled' || (ended && Date.now() - (send.doneAt || send.updatedAt || send.createdAt) > 10 * 60_000)) {
-    card.hidden = true;
+  if (!sendBelongsHere(send) || send.dismissed || send.status === 'cancelled' || (ended && Date.now() - (send.doneAt || send.updatedAt || send.createdAt) > 10 * 60_000)) {
+    card.hidden = true;card.onclick=null;
     return;
   }
   card.hidden = false;
@@ -2343,22 +2378,70 @@ async function openClaim() {
   err('assetRecoveryError');renderAssetRecovery();showScreen('claim');
 }
 
+function selectedRecoveryStatus() {
+  const st=app?.status||{};
+  return (st.recoveryWallet===assetRecoveryProfile||(!st.recoveryWallet&&st.restored&&assetRecoveryProfile==='standard'))?st:app?.recoveries?.[assetRecoveryProfile]||{};
+}
+let recoveryRequest=false;
 function renderAssetRecovery() {
-  const st=app?.status || {},h=Number(st.height||0),tip=Number(st.tip||h),start=Number(st.startHeight||0);
+  const st=selectedRecoveryStatus(),h=Number(st.height||0),tip=Number(st.tip||h),start=Number(st.startHeight||0);
+  const selected=document.querySelector('input[name="assetRecoveryMode"]:checked')?.value||'private';
+  const owns=(app?.status?.recoveryWallet||'standard')===assetRecoveryProfile&&Boolean(app?.status?.recoveryMode);
+  const failed=Boolean(st.error||st.serverOk===false);
+  const running=owns&&!st.scanPaused&&!failed&&Boolean(st.fastPending||st.fastPhase||(st.syncing&&st.recoveryMode));
   $('assetRecoveryWallet').textContent=t(`modes.${assetRecoveryProfile}`);
   $('assetEncryptedRecovery').hidden=assetRecoveryProfile!=='encrypted';
   $('assetRecoveryBar').style.width=`${Math.round(tip>start?Math.max(0,Math.min(1,(h-start)/(tip-start)))*100:100)}%`;
-  $('assetRecoveryStatus').textContent=st.fastPending||st.fastPhase?t('rm.running',{n:st.fastFound||0}):st.fastFailed?t('assets.fallback'):st.error?String(st.error):t('assets.progress',{h:fmtNum(h),t:fmtNum(tip)});
-  const running=Boolean(st.fastPending||st.fastPhase||(st.syncing&&st.recoveryMode));
-  if(running&&st.recoveryMode){const label=t(st.recoveryMode==='fast'?'rm.fast':st.recoveryMode==='node'?'assets.node':'assets.private');$('assetRecoveryStatus').textContent=`${label} · ${$('assetRecoveryStatus').textContent}`;}
-  $('assetRecover').disabled=running;
+  $('assetRecoveryStatus').textContent=st.scanPaused?t('assets.paused'):failed?String(st.error||t('status.unreachable')):!st.recoveryMode?t('assets.notStarted'):st.fastPending||st.fastPhase?t('rm.running',{n:st.fastFound||0}):st.fastFailed?`${t('assets.fallback')} · ${t('assets.progress',{h:fmtNum(h),t:fmtNum(tip)})}`:t('assets.progress',{h:fmtNum(h),t:fmtNum(tip)});
+  if(running&&st.recoveryMode){const label=t(st.fastFailed?'assets.private':st.recoveryMode==='fast'?'rm.fast':st.recoveryMode==='node'?'assets.node':'assets.private');$('assetRecoveryStatus').textContent=`${label} · ${$('assetRecoveryStatus').textContent}`;}
+  $('assetRecover').disabled=recoveryRequest||(running&&selected===st.recoveryMode);
+  $('assetRecover').textContent=t(owns&&st.scanPaused&&selected===st.recoveryMode?'assets.resume':running&&selected!==st.recoveryMode?'assets.switch':'assets.start');
+  $('assetPause').hidden=!owns||st.scanPaused||!(st.fastPending||st.fastPhase||st.syncing);
+  $('assetPause').disabled=recoveryRequest;
 }
+async function recoveryCall(cmd,args) {
+  let timer;
+  try{return await Promise.race([call(cmd,args),new Promise((_,reject)=>{timer=setTimeout(()=>reject(new Error(t('assets.controlTimeout'))),30000);})]);}
+  finally{clearTimeout(timer);}
+}
+async function recoveryControl(cmd) {
+  const c=claimContext();recoveryRequest=true;renderAssetRecovery();err('assetRecoveryError');
+  try {
+    const result=await recoveryCall(cmd,claimArgs(c));
+    if(!claimCurrent(c,false))return;
+    app.status=result.status;app.recoveries=result.recoveries;renderAssetRecovery();
+  }catch(e){if(claimCurrent(c,false))err('assetRecoveryError',e);}
+  finally{recoveryRequest=false;renderAssetRecovery();}
+}
+$('assetPause').onclick=()=>recoveryControl('pauseRecovery');
 $('assetRecoveryBack').onclick=()=>showScreen(assetRecoveryReturn);
-for(const r of document.querySelectorAll('input[name="assetRecoveryMode"]'))r.onchange=()=>{$('assetNodeField').hidden=r.value!=='node'||!r.checked;};
+let recoveryPreferenceVersion=0;
+let recoveryPreferenceWrites=Promise.resolve();
+async function rememberRecoveryMode(mode) {
+  const c=claimContext(),version=++recoveryPreferenceVersion;
+  app.settings.recoveryModes={...app.settings.recoveryModes,[c.walletMode]:mode};
+  const request=recoveryPreferenceWrites.then(()=>call('setRecoveryMode',{...claimArgs(c),mode}));
+  recoveryPreferenceWrites=request.catch(()=>{});
+  try{const settings=await request;if(claimCurrent(c,false)&&version===recoveryPreferenceVersion)app.settings.recoveryModes=settings.recoveryModes;}
+  catch(e){if(claimCurrent(c,false)&&version===recoveryPreferenceVersion)err('assetRecoveryError',e);}
+}
+for(const r of document.querySelectorAll('input[name="assetRecoveryMode"]'))r.onchange=()=>{
+  $('assetNodeField').hidden=r.value!=='node'||!r.checked;
+  if(r.checked)rememberRecoveryMode(r.value);
+  renderAssetRecovery();
+};
 $('assetEncryptedRecovery').onclick=()=>openPrivatePage('recovery','encrypted');
 $('assetRecover').onclick=async()=>{
+  if(recoveryRequest)return;
   const button=$('assetRecover');err('assetRecoveryError');
   const mode=document.querySelector('input[name="assetRecoveryMode"]:checked')?.value||'private';
+  // Resume an interrupted recovery of the same kind; do not erase its
+  // checkpoint by starting another rescan just to retry the connection.
+  const st=selectedRecoveryStatus();
+  if((app.status?.recoveryWallet||'standard')===assetRecoveryProfile&&st.scanPaused&&st.recoveryMode===mode)return recoveryControl('resumeRecovery');
+  if((app.status?.recoveryWallet||'standard')===assetRecoveryProfile&&(st.error||st.serverOk===false)&&st.recoveryMode===mode&&(st.fastPending||st.fastPhase||st.height<st.tip)) {
+    await refreshAssetsNow();return;
+  }
   let nodeUrl;
   if(mode==='node') {
     try{nodeUrl=new URL($('assetNodeUrl').value.trim()).href;}catch{return err('assetRecoveryError',t('rm.badUrl'));}
@@ -2367,9 +2450,10 @@ $('assetRecover').onclick=async()=>{
     const granted=await chrome.permissions.request({origins:[`${url.protocol}//${url.hostname}/*`]}).catch(()=>false);
     if(!granted)return err('assetRecoveryError',t('srv.denied'));
   }
-  busy(button,true);
-  try{await call('rescan',{birthday:0,mode,nodeUrl,walletMode:assetRecoveryProfile,networkContext:app.settings.network});app=await call('state');renderAssetRecovery();toast(t('assets.started'));}
-  catch(e){err('assetRecoveryError',e);}finally{busy(button,false);renderAssetRecovery();}
+  recoveryRequest=true;busy(button,true);
+  const context=claimContext();
+  try{await recoveryCall('rescan',{birthday:0,mode,nodeUrl,walletMode:assetRecoveryProfile,networkContext:app.settings.network});const state=await recoveryCall('state');if(!claimCurrent(context,false))return;app=state;renderAssetRecovery();toast(t('assets.started'));}
+  catch(e){if(claimCurrent(context,false))err('assetRecoveryError',e);}finally{recoveryRequest=false;busy(button,false);renderAssetRecovery();}
 };
 
 
@@ -2923,13 +3007,20 @@ function fillServers() {
   for (const b of document.querySelectorAll('#srvNet .seg-btn')) b.classList.toggle('on', b.dataset.net === serversNet);
   const srv = app.settings.servers?.[serversNet] || {};
   $('setSync').value = srv.sync || '';
-  $('setBroadcast').value = srv.broadcast || '';
+  $('setBroadcast').value = srv.broadcast===srv.sync?'':srv.broadcast||'';
+  $('setNodePool').checked=srv.randomFallback===true;
+  $('setNodeB').value=srv.fallback||'';
+  $('nodeBField').hidden=!$('setNodePool').checked;
+  $('nodeSessionStatus').textContent='';
+  const network=serversNet;
+  call('nodeSession',{network}).then(choice=>{if(serversNet===network&&choice?.url)$('nodeSessionStatus').textContent=t('srv.poolUsing',{node:choice.label,host:new URL(choice.url).host});}).catch(()=>{});
   $('setMsg').textContent = '';
   const local = isLocalUrl(srv.sync) && isLocalUrl(srv.broadcast);
   $('nodeMode').checked = local;
   if (local) $('nodeUrl').value = srv.sync;
   $('nodeChecks').hidden = true;
 }
+$('setNodePool').onchange=()=>{$('nodeBField').hidden=!$('setNodePool').checked;};
 for (const b of document.querySelectorAll('#srvNet .seg-btn')) {
   b.onclick = () => {
     serversNet = b.dataset.net;
@@ -2952,6 +3043,7 @@ function openSub(name) {
     $('setWorkers').value = String(s.workers);
     $('setLowMem').value = s.lowMemoryProving || 'auto';
     $('setExact').checked = s.exactPrivacy !== false;
+    $('setWaitBlock').checked=s.waitForFreshBlock===true;
     renderProofReport();
     $('advNetwork').textContent = netLabel(s.network);
     $('advHeight').textContent = app.status?.height != null ? fmtNum(app.status.height) : '—';
@@ -2969,6 +3061,7 @@ function openSub(name) {
   showScreen(name);
 }
 
+$('setWaitBlock').onchange=()=>savePref({waitForFreshBlock:$('setWaitBlock').checked,sendTimingConfigured:true});
 $('setWorkers').onchange = () => savePref({ workers: $('setWorkers').value });
 $('setLowMem').onchange = () => savePref({ lowMemoryProving: $('setLowMem').value });
 $('setExact').onchange = () => savePref({ exactPrivacy: $('setExact').checked });
@@ -3062,13 +3155,13 @@ $('nodeMode').onchange = async () => {
       const url = new URL($('nodeUrl').value.trim()).href;
       const granted = await chrome.permissions.request({ origins: [`${new URL(url).protocol}//${new URL(url).hostname}/*`] }).catch(() => false);
       if (!granted) throw new Error(t('srv.denied'));
-      await savePref({ servers: { [serversNet]: { sync: url, broadcast: url } } });
+      await savePref({ servers: { [serversNet]: { sync: url, broadcast: url,fallback:'',randomFallback:false } } });
       $('setSync').value = url;
       $('setBroadcast').value = url;
       await showServerChecks(url);
     } else {
       const d = PUBLIC_SERVERS[serversNet] || '';
-      await savePref({ servers: { [serversNet]: { sync: d, broadcast: d } } });
+      await savePref({ servers: { [serversNet]: { sync: d, broadcast: d,fallback:'',randomFallback:false } } });
       $('setSync').value = d;
       $('setBroadcast').value = d;
       $('nodeChecks').hidden = true;
@@ -3083,24 +3176,32 @@ $('nodeMode').onchange = async () => {
 
 $('setSave').onclick = async () => {
   const b = $('setSave');
+  const network=serversNet,epoch=secretEpoch;
+  const current=()=>currentScreen==='servers'&&serversNet===network&&secretEpoch===epoch;
   busy(b, true);
   try {
     const sync = $('setSync').value.trim();
-    const broadcast = $('setBroadcast').value.trim() || sync;
+    const broadcast = $('setBroadcast').value.trim();
+    const fallback=$('setNodeB').value.trim(),randomFallback=$('setNodePool').checked;
+    if(randomFallback&&(!sync||!fallback||new URL(sync).href===new URL(fallback).href))throw new Error(t('srv.poolNeedTwo'));
     if (sync) {
       // Match patterns cover every port of a host, so the port is left out.
-      const origins = [...new Set([sync, broadcast].map((u) => {
+      const origins = [...new Set([sync, fallback, broadcast].filter(Boolean).map((u) => {
         const x = new URL(u);
         return `${x.protocol}//${x.hostname}/*`;
       }))];
       const granted = await chrome.permissions.request({ origins });
       if (!granted) throw new Error(t('srv.denied'));
     }
-    await savePref({ servers: { [serversNet]: { sync, broadcast } } });
+    if(!current())return;
+    const settings=await call('saveSettings',{servers:{[network]:{sync,broadcast,fallback,randomFallback}}});
+    if(!current())return;
+    app.settings=settings;
     $('setMsg').textContent = t('srv.saved');
-    if (serversNet === app.settings.network) call('sync').catch(() => {});
+    const choice=await call('nodeSession',{network});if(current()&&choice?.url)$('nodeSessionStatus').textContent=t('srv.poolUsing',{node:choice.label,host:new URL(choice.url).host});
+    if (network === app.settings.network) call('sync').catch(() => {});
   } catch (e) {
-    $('setMsg').textContent = String(e.message || e);
+    if(current())$('setMsg').textContent = String(e.message || e);
   } finally {
     busy(b, false);
   }
@@ -3174,7 +3275,8 @@ chrome.runtime.onMessage.addListener((msg) => {
   }
   if (msg.type === 'status') {
     if (msg.network && app?.settings && msg.network !== app.settings.network) return;
-    if (app) app.status = msg.status;
+    if (app) {app.status=msg.status;if(msg.recoveries)app.recoveries=msg.recoveries;}
+    if(currentScreen==='servers'&&serversNet===app.settings.network&&msg.status.node?.url)$('nodeSessionStatus').textContent=t('srv.poolUsing',{node:msg.status.node.label,host:new URL(msg.status.node.url).host});
     if (currentScreen==='claim') renderAssetRecovery();
     if (!$('v-home').hidden) renderHomeWatch(homeWatchCache);
     if (!$('v-home').hidden || currentScreen.startsWith('private')) renderPrivatePanel();
@@ -3198,16 +3300,16 @@ chrome.runtime.onMessage.addListener((msg) => {
     if (!$('v-home').hidden) refreshHome();
     if (!$('v-watch').hidden) renderWatch();
   }
-  if (msg.type === 'locked') { if(app)app.unlocked=false;clearWatchSecrets(); clearPrivateText(); closeSheet(); boot().catch(() => {}); }
+  if (msg.type === 'locked') { if(app)app.unlocked=false;cancelAssetRefresh();clearWatchSecrets(); clearPrivateText(); closeSheet(); boot().catch(() => {}); }
   if (msg.type === 'contacts') { loadContacts().then(() => { if (!$('v-contacts').hidden) renderContacts(); }); }
   if (msg.type === 'send') {
     if (msg.send.network && app?.settings && msg.send.network !== app.settings.network) return;
     if ((msg.send.walletMode || 'standard')!==activeMode(app?.settings)) return;
-    renderSendCard(msg.send);
+    app.send=msg.send;renderSendCard(msg.send);
     if (currentSheet === 'progress' && (!lastSend?.id || lastSend.id === msg.send.id)) renderProgress(msg.send);
     if (msg.send.status === 'done') refreshHome();
   }
-  if (msg.type === 'proveProgress' && lastSend) {
+  if (msg.type === 'proveProgress' && lastSend && msg.sendId===lastSend.id && sendBelongsHere(lastSend)) {
     const s = { ...lastSend, status: 'proving', jobsDone: msg.done, jobCount: msg.total, lastJob: msg.label };
     if (currentSheet === 'progress') renderProgress(s);
     renderSendCard(s);

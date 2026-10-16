@@ -99,3 +99,9 @@ Sub-wallet recovery methods are remembered independently. Fast/Own node asset re
 ## Payment-code and UI fixes in 0.23.3
 
 See [BUG-REVIEW-0.23.3.md](BUG-REVIEW-0.23.3.md) for checked rules, fixed races and remaining concerns. Payment-code actions are bound to their reviewed profile/network and reject stale queued requests. Code imports are capped at 64 KiB. Hidden code details and late replies are cleared/ignored. Removing a waiting code requires confirmation; keep its original for re-import. Archive adoption preserves owning profiles and bounded key counters. This does not resolve the consensus-authentication or unbounded-RPC-response concerns above.
+
+## Refresh/send/recovery follow-up (0.23.4)
+
+See [BUG-REVIEW-0.23.4.md](BUG-REVIEW-0.23.4.md). Refresh and recovery control waits are bounded in the UI without automatically replaying mutations. Recovery-switch checkpoints are encrypted with the wallet key. Foreign-profile send controls and stale sending cards are rejected, and cancelled sends survive late checking errors. Shared scan/network/proving resources and unaudited production boundaries remain explicit.
+
+The optional A/B node pool retries known reads only and never turns a lost transaction-upload reply into an automatic resubmission. Both peers are routed through Tor when enabled; server settings block remote requests before new PAC hosts are published. Own node mode clears fallback. Either operator may see indexed lookup metadata, and privacy reporting includes that possibility. Random selection does not remove trust in the configured validating nodes.

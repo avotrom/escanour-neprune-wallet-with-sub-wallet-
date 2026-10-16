@@ -20,4 +20,4 @@ Messages are untrusted plain text in the UI. They and sensitive send fields are 
 
 Build fresh WASM modules using the included build workflow. Configure a test-network node in Settings → Servers. Open the sub-wallet icon beside Tor, select Encrypted and choose Create sub-wallet. Its home shows Generation and EC Hybrid cards; Receive selects either encrypted app address. Share only the complete app address with a compatible wallet. The optional message appears in encrypted Send. Ordinary wallets do not understand these app addresses. Mainnet is blocked.
 
-The outer envelope is elliptic-curve based for both address types. The protocol has not had an independent anonymity or cryptographic audit. Live node acceptance and production proving were not validated. See [RELEASE-0.23.3.md](../RELEASE-0.23.3.md) for exactly which checks were completed.
+The outer envelope is elliptic-curve based for both address types. The protocol has not had an independent anonymity or cryptographic audit. Live node acceptance and production proving were not validated. See [RELEASE-0.23.4.md](../RELEASE-0.23.4.md) for exactly which checks were completed.

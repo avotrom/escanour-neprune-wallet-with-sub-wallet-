@@ -2847,6 +2847,7 @@ Object.assign(STRINGS.ar, {'backup.hint':'نسخة اختيارية مشفّرة
 
 Object.assign(STRINGS.en, {
  'home.refreshAssets':'Refresh assets','home.refreshed':'Assets updated','home.refreshRunning':'Syncing your assets…','home.refreshFailed':'The balance could not be refreshed. Try again.',
+ 'home.refreshRequested':'Refresh requested. Follow sync progress above.','home.refreshTimeout':'The wallet did not respond. Refresh may still be running; check the sync status.',
  'codes.title':'Payment codes','codes.navHint':'Add a code from the sender','codes.more':'More options','codes.moreHint':'Scan from a known block',
  'codes.hint':'Paste a payment code from the sender. Funds appear only after its block has been checked.',
  'codes.check':'Check code','codes.add':'Add payment','codes.waiting':'Waiting payments','codes.scanTitle':'Find an older payment','codes.block':'First payment block','codes.scanBlock':'Scan from this block',
@@ -2855,6 +2856,7 @@ Object.assign(STRINGS.en, {
 });
 Object.assign(STRINGS.fr, {
  'home.refreshAssets':'Actualiser les actifs','home.refreshed':'Actifs actualisés','home.refreshRunning':'Synchronisation des actifs…','home.refreshFailed':'Le solde n’a pas pu être actualisé. Réessayez.',
+ 'home.refreshRequested':'Actualisation demandée. Suivez la progression ci-dessus.','home.refreshTimeout':'Le portefeuille ne répond pas. L’actualisation peut continuer ; vérifiez l’état de synchronisation.',
  'codes.title':'Codes de paiement','codes.navHint':'Ajouter un code reçu de l’expéditeur','codes.more':'Autres options','codes.moreHint':'Scanner depuis un bloc connu',
  'codes.hint':'Collez le code reçu de l’expéditeur. Les fonds apparaissent après vérification de leur bloc.',
  'codes.check':'Vérifier le code','codes.add':'Ajouter le paiement','codes.waiting':'Paiements en attente','codes.scanTitle':'Retrouver un ancien paiement','codes.block':'Bloc du premier paiement','codes.scanBlock':'Scanner depuis ce bloc',
@@ -2863,6 +2865,7 @@ Object.assign(STRINGS.fr, {
 });
 Object.assign(STRINGS.ar, {
  'home.refreshAssets':'تحديث الأصول','home.refreshed':'تم تحديث الأصول','home.refreshRunning':'جارٍ مزامنة الأصول…','home.refreshFailed':'تعذر تحديث الرصيد. حاول مجددًا.',
+ 'home.refreshRequested':'تم طلب التحديث. تابع تقدّم المزامنة أعلاه.','home.refreshTimeout':'لم تستجب المحفظة. قد يستمر التحديث؛ تحقق من حالة المزامنة.',
  'codes.title':'رموز الدفع','codes.navHint':'إضافة رمز من المُرسل','codes.more':'خيارات إضافية','codes.moreHint':'الفحص من بلوك معروف',
  'codes.hint':'الصق رمز الدفع من المُرسل. تظهر الأموال بعد التحقق من البلوك الخاص بها.',
  'codes.check':'فحص الرمز','codes.add':'إضافة الدفعة','codes.waiting':'دفعات قيد الانتظار','codes.scanTitle':'العثور على دفعة قديمة','codes.block':'بلوك أول دفعة','codes.scanBlock':'الفحص من هذا البلوك',
@@ -2875,3 +2878,30 @@ Object.assign(STRINGS.ar, {'codes.remove':'إزالة الرمز','codes.removeC
 Object.assign(STRINGS.en, {'pc.summaryGood':'No privacy-setting alerts','pc.headGood':'Privacy settings checked'});
 Object.assign(STRINGS.fr, {'pc.summaryGood':'Aucune alerte sur les réglages de confidentialité','pc.headGood':'Réglages de confidentialité vérifiés'});
 Object.assign(STRINGS.ar, {'pc.summaryGood':'لا تنبيهات على إعدادات الخصوصية','pc.headGood':'تم فحص إعدادات الخصوصية'});
+
+Object.assign(STRINGS.en, {
+ 'adv.waitBlock':'Wait for a fresh block','adv.waitBlockHint':'Off by default. When on, waits briefly for the next block before building. Proof validation stays the same.',
+ 'pg.checking':'Checking the latest block','pg.buildHint':'Preparing inputs and proof jobs on this device.',
+ 'assets.stop':'Stop scan','assets.resume':'Resume scan','assets.switch':'Switch method','assets.paused':'Scan paused','assets.resumeHint':'Resume from Recover assets','assets.notStarted':'No recovery started for this sub-wallet.',
+ 'assets.scope':'Method and progress belong to this sub-wallet. One local scanner runs at a time; switching jobs pauses the previous one.'
+});
+Object.assign(STRINGS.fr, {
+ 'adv.waitBlock':'Attendre un nouveau bloc','adv.waitBlockHint':'Désactivé par défaut. Si activé, attend brièvement le prochain bloc avant la construction. La validation des preuves reste identique.',
+ 'pg.checking':'Vérification du dernier bloc','pg.buildHint':'Préparation des entrées et des preuves sur cet appareil.',
+ 'assets.stop':'Arrêter le scan','assets.resume':'Reprendre le scan','assets.switch':'Changer de méthode','assets.paused':'Scan en pause','assets.resumeHint':'Reprendre dans Récupérer les actifs','assets.notStarted':'Aucune récupération démarrée pour ce sous-portefeuille.',
+ 'assets.scope':'Méthode et progression propres à ce sous-portefeuille. Un seul scan local fonctionne à la fois ; changer de tâche met la précédente en pause.'
+});
+Object.assign(STRINGS.ar, {
+ 'adv.waitBlock':'انتظار بلوك جديد','adv.waitBlockHint':'معطّل افتراضيًا. عند تفعيله، ينتظر البلوك التالي لفترة محدودة قبل البناء. يبقى التحقق من البراهين كما هو.',
+ 'pg.checking':'التحقق من أحدث بلوك','pg.buildHint':'تجهيز المدخلات ومهام البراهين على هذا الجهاز.',
+ 'assets.stop':'إيقاف الفحص','assets.resume':'استئناف الفحص','assets.switch':'تغيير الطريقة','assets.paused':'الفحص متوقف مؤقتًا','assets.resumeHint':'استأنف من استعادة الأصول','assets.notStarted':'لم تبدأ استعادة لهذه المحفظة الفرعية.',
+ 'assets.scope':'الطريقة والتقدم خاصان بهذه المحفظة الفرعية. يعمل فحص محلي واحد في كل مرة؛ تغيير المهمة يوقف السابقة مؤقتًا.'
+});
+
+Object.assign(STRINGS.en,{'assets.controlTimeout':'The request was not confirmed. Reopen Recover assets to check progress before trying again.'});
+Object.assign(STRINGS.fr,{'assets.controlTimeout':'La demande n’a pas été confirmée. Rouvrez Récupérer les actifs pour vérifier la progression avant de réessayer.'});
+Object.assign(STRINGS.ar,{'assets.controlTimeout':'لم يتم تأكيد الطلب. أعد فتح استعادة الأصول للتحقق من التقدم قبل المحاولة مجددًا.'});
+
+Object.assign(STRINGS.en,{'srv.nodeA':'Node A','srv.nodeB':'Node B','srv.pool':'Random node with fallback','srv.poolHint':'Choose A or B once per browser session. If a read fails, switch to the other. Use two nodes for this network.','srv.poolUsing':'Using Node {node} · {host}','srv.poolNeedTwo':'Enter two different node addresses.','srv.poolBroadcastHint':'Leave empty to use the session node. A different address overrides it for sending. Uploads are never automatically retried.'});
+Object.assign(STRINGS.fr,{'srv.nodeA':'Nœud A','srv.nodeB':'Nœud B','srv.pool':'Nœud aléatoire avec secours','srv.poolHint':'Choisit A ou B une fois par session du navigateur. Si une lecture échoue, passe à l’autre. Utilisez deux nœuds du même réseau.','srv.poolUsing':'Nœud {node} utilisé · {host}','srv.poolNeedTwo':'Saisissez deux adresses de nœuds différentes.','srv.poolBroadcastHint':'Laissez vide pour utiliser le nœud de session. Une autre adresse est utilisée pour les envois. Les soumissions ne sont jamais répétées automatiquement.'});
+Object.assign(STRINGS.ar,{'srv.nodeA':'العقدة A','srv.nodeB':'العقدة B','srv.pool':'عقدة عشوائية مع بديل','srv.poolHint':'يختار A أو B مرة لكل جلسة متصفح. إذا فشلت القراءة ينتقل إلى الأخرى. استخدم عقدتين للشبكة نفسها.','srv.poolUsing':'استخدام العقدة {node} · {host}','srv.poolNeedTwo':'أدخل عنوانين مختلفين للعقدتين.','srv.poolBroadcastHint':'اتركه فارغًا لاستخدام عقدة الجلسة. عنوان مختلف هنا يُستخدم للإرسال. لا تُعاد عمليات الرفع تلقائيًا.'});

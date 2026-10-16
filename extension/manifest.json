@@ -2,7 +2,7 @@
   "manifest_version": 3,
   "name": "Escanour Neptune Wallet",
   "short_name": "Escanour",
-  "version": "0.23.3",
+  "version": "0.23.4",
   "author": "avotrom",
   "description": "Neptune light-wallet prototype with separate sub-wallets, local transaction proving and selectable asset-recovery methods.",
   "icons": {
@@ -51,5 +51,5 @@
   "side_panel": {
     "default_path": "popup.html?view=panel"
   },
-  "version_name": "0.23.3 payment recovery fixes prototype"
+  "version_name": "0.23.4 refresh, recovery and node fallback prototype"
 }

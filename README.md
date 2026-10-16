@@ -1,8 +1,8 @@
-# Escanour Neptune Wallet 0.23.3 — three sub-wallets
+# Escanour Neptune Wallet 0.23.4 — three sub-wallets
 
 Standard is created by default. Create Auto-refresh or Encrypted only when wanted. Each sub-wallet has its own balance, Generation and EC Hybrid addresses, activity and change. Auto-refresh advances after confirmed payments locally; Encrypted adds a hidden receiver notification and optional message on test networks.
 
-See [docs/SUB-WALLETS.md](docs/SUB-WALLETS.md) for the current design, privacy, performance and seed recovery, [docs/PRIVATE-NOTIFICATIONS.md](docs/PRIVATE-NOTIFICATIONS.md) for wire v3, and [RELEASE-0.23.3.md](RELEASE-0.23.3.md) for validation. No address URL/service, old Private controls menu or automatic mixing is included. Privacy check is in Settings. The supplied image guides the charcoal/violet interface.
+See [docs/SUB-WALLETS.md](docs/SUB-WALLETS.md) for the current design, privacy, performance and seed recovery, [docs/PRIVATE-NOTIFICATIONS.md](docs/PRIVATE-NOTIFICATIONS.md) for wire v3, and [RELEASE-0.23.4.md](RELEASE-0.23.4.md) for validation. No address URL/service, old Private controls menu or automatic mixing is included. Privacy check is in Settings. The supplied image guides the charcoal/violet interface.
 
 This is an experimental source prototype based on the supplied 0.21 ZIP and unchanged Neptune pin. Fresh WASM modules must be built. Encrypted mode is disabled on mainnet and needs independent review and live-node validation. GitHub Actions skips light-core unit tests; JavaScript checks, compile checks and builds remain. Local Rust tests are retained.
 
@@ -10,7 +10,7 @@ Recover assets offers Fast, Private scan and Own node for all three sub-wallets,
 
 Current security fixes and remaining risks: [docs/SECURITY-REVIEW-0.23.2.md](docs/SECURITY-REVIEW-0.23.2.md). Encrypted recovery-file export is shown only inside Encrypted. Lost broadcast replies preserve the original transaction; an uncertain payment blocks new sends and recovery until resolved. The light wallet does not independently validate block proofs, proof of work or canonical-chain selection; use a trusted node.
 
-Available includes Refresh assets. Recover assets has separate Payment codes and More options pages. See [docs/BUG-REVIEW-0.23.3.md](docs/BUG-REVIEW-0.23.3.md) for verified payment-code rules and remaining concerns.
+Servers optionally chooses Node A or B for the browser session and fails over on read failure. Both URLs must be configured; transaction uploads retain uncertainty protection. Available includes Refresh assets. Recover assets has separate Payment codes and More options pages. See [docs/BUG-REVIEW-0.23.4.md](docs/BUG-REVIEW-0.23.4.md) for verified payment-code rules and remaining concerns.
 
 ## How it works
 

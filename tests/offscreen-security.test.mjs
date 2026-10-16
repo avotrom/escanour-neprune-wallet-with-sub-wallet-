@@ -6,7 +6,7 @@ const source=fs.readFileSync(new URL('../extension/offscreen.js',import.meta.url
 const submit=source.slice(source.indexOf('async function submit('),source.indexOf('chrome.runtime.onMessage.addListener')).replace('import.meta.url',"'file:///mock/offscreen.js'");
 function harness({failure,success=true,prepareFails=false}={}) {
   const values=new Map();let uploads=0;
-  const context=vm.createContext({submitting:null,cancelled:new Set(),lightReady:null,Uint8Array,URL,Date,
+  const context=vm.createContext({chrome:{runtime:{sendMessage:async()=>({ok:true,data:'https://example.invalid/'})}},submitting:null,cancelled:new Set(),lightReady:null,Uint8Array,URL,Date,
     importRawKey:async()=>({}),decrypt:async()=>new Uint8Array([1]),initLight:async()=>{},loadSettings:async()=>({}),serversFor:()=>({broadcast:'https://example.invalid/'}),
     light:{submitRequest:()=>{if(prepareFails)throw Error('self-check failed');return 'same transaction';},parseSubmit:()=>success},
     db:{STORES:{sends:'sends',proofs:'proofs',kv:'kv'},get:async(s,k)=>s==='sends'?{prepared:{},jobCount:0}:values.get(k),put:async(s,k,v)=>values.set(k,v)},
@@ -29,6 +29,6 @@ test('a successful broadcast overwrites the crash-recovery uncertainty marker',a
 
 test('cancellation during transaction assembly prevents any network upload',async()=>{
   const values=new Map();const cancelled=new Set();let uploads=0;
-  const context=vm.createContext({submitting:null,cancelled,lightReady:null,Uint8Array,URL,Date,importRawKey:async()=>({}),decrypt:async()=>new Uint8Array([1]),initLight:async()=>{},loadSettings:async()=>({}),serversFor:()=>({broadcast:'https://example.invalid/'}),light:{submitRequest:()=>'',parseSubmit:()=>true},db:{STORES:{sends:'sends',proofs:'proofs',kv:'kv'},get:async()=>({prepared:{},jobCount:0}),put:async(s,k,v)=>values.set(k,v)},rpc:{id:()=>1,assertRoute:async()=>{cancelled.add('id');},post:async()=>{uploads++;}},report:()=>{}});
+  const context=vm.createContext({chrome:{runtime:{sendMessage:async()=>({ok:true,data:'https://example.invalid/'})}},submitting:null,cancelled,lightReady:null,Uint8Array,URL,Date,importRawKey:async()=>({}),decrypt:async()=>new Uint8Array([1]),initLight:async()=>{},loadSettings:async()=>({}),serversFor:()=>({broadcast:'https://example.invalid/'}),light:{submitRequest:()=>'',parseSubmit:()=>true},db:{STORES:{sends:'sends',proofs:'proofs',kv:'kv'},get:async()=>({prepared:{},jobCount:0}),put:async(s,k,v)=>values.set(k,v)},rpc:{id:()=>1,assertRoute:async()=>{cancelled.add('id');},post:async()=>{uploads++;}},report:()=>{}});
   vm.runInContext(submit+'\nglobalThis.submit=submit;',context);await context.submit('id',new Uint8Array(32));assert.equal(uploads,0);assert.equal(values.size,0);
 });

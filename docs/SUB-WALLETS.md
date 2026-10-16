@@ -1,6 +1,6 @@
 # Three sub-wallets in one app
 
-Current design, 16 October 2026. This replaces the earlier shared-balance mode and payment-link proposals. The source prototype is 0.23.3-alpha.1, based on the supplied 0.21 ZIP and pinned Neptune commit `cc3fca93fa4410bc6f7ab8db7c2416dde33d7f04`.
+Current design, 16 October 2026. This replaces the earlier shared-balance mode and payment-link proposals. The source prototype is 0.23.4-alpha.1, based on the supplied 0.21 ZIP and pinned Neptune commit `cc3fca93fa4410bc6f7ab8db7c2416dde33d7f04`.
 
 | Sub-wallet | Created by default | Receiving addresses | Behavior |
 | --- | --- | --- | --- |
@@ -70,6 +70,23 @@ Production work remains: live-node relay/mining and real proof verification; rel
 
 Encrypted recovery-file export is available only in Encrypted → Encrypted address recovery → Details. Standard and Auto-refresh retain the common Recover assets choices without that export. The optional file backs up the root phrase shared by all three wallets. See [SECURITY-REVIEW-0.23.2.md](SECURITY-REVIEW-0.23.2.md) for lock/export guards, broadcast uncertainty and remaining node-trust limitations.
 
-### Payment recovery (0.23.3)
+### Payment recovery (0.23.4)
 
-Available → Refresh assets checks for recent chain updates. It does not rotate the address or reset recovery. Recover assets → Payment codes checks and adds a sender’s code, with a separate counted waiting list. More options contains an optional known-block Private scan; this does not change the wallet’s saved recovery method. Premine search belongs only to Standard. See [BUG-REVIEW-0.23.3.md](BUG-REVIEW-0.23.3.md).
+Available → Refresh assets checks for recent chain updates. It does not rotate the address or reset recovery. Recover assets → Payment codes checks and adds a sender’s code, with a separate counted waiting list. More options contains an optional known-block Private scan; this does not change the wallet’s saved recovery method. Premine search belongs only to Standard. See [BUG-REVIEW-0.23.4.md](BUG-REVIEW-0.23.4.md).
+
+
+### Refresh, send and recovery controls (0.23.4)
+
+Refresh assets requests the existing background scan and releases the button when acknowledged. An unanswered request releases it after eight seconds with an explicit warning; it never reports verified assets just because work was queued. Sync progress remains separate. Navigation and lock release the button and suppress stale replies.
+
+Each sub-wallet saves its own Fast / Private scan / Own node selection when the radio changes, and displays its own most recent recovery progress. Stop scan pauses the active job at a committed checkpoint. Resume scan continues the current paused job. Selecting another method allows Switch method without waiting for the old scan to finish. One local scanner and chain accumulator are shared, so starting a different sub-wallet's job pauses the previous job; these are not three simultaneous independent chain databases. Progress records live in browser session storage; seed restoration recreates funds by scanning, not those UI records.
+
+A pre-rewind wallet checkpoint is retained encrypted on the device. Switching back to Fast seeds known confirmed receipts from it instead of mistaking them for newly supplied off-chain codes. Other sub-wallet proofs advance through public blocks locally before a checked merge; their lookup identifiers are not uploaded. Genuine unresolved payment codes or an unavailable index may still require Private scan, with that fallback shown explicitly.
+
+Advanced → Wait for a fresh block is optional and off by default, including migration of older forced defaults. Sending still checks the current chain state and validates proofs. Checking the latest block, building and proving are distinct stages; archive/index maintenance no longer delays the foreground tip check. Sending cards and controls are scoped to the sending profile and network. One outgoing payment at a time remains an intentional shared-engine constraint.
+
+Building and proving timings depend on the machine, number of inputs, proof jobs, WASM initialization and worker/memory configuration. The recorded preparation time and existing Last proofs report help investigation; the preview cannot establish real proving performance. See [BUG-REVIEW-0.23.4.md](BUG-REVIEW-0.23.4.md).
+
+### Optional node selection (0.23.4)
+
+Servers provides a per-network Random node with fallback option. Configure A and B; the browser session keeps one randomly chosen peer until a read failure switches to the other. All sub-wallets share this network setting. Default sending follows the selected peer, with a separate broadcast address as an override. Uploads retain uncertain-result protection and are not automatically repeated. Own node mode disables public fallback. Both peers may learn Fast lookup metadata if used; random choice is an availability feature, not mixing or consensus authentication.

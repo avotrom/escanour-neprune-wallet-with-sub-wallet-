@@ -14,7 +14,7 @@ import initLight, * as light from './pkg/light/light_wasm.js';
 import * as db from './lib/db.js';
 import * as rpc from './lib/rpc.js';
 import { decrypt, importRawKey } from './lib/vault.js';
-import { load as loadSettings, serversFor, workerCount } from './lib/settings.js';
+import { load as loadSettings, workerCount } from './lib/settings.js';
 
 let active = null; // { sendId, queue, done, total, workers, failed, labels, key }
 let submitting = null; // sendId being broadcast
@@ -120,7 +120,9 @@ async function submit(sendId, rawKey) {
     }
     lightReady ??= initLight({ module_or_path: new URL('./pkg/light/light_wasm_bg.wasm', import.meta.url) });
     await lightReady;
-    const server = serversFor(await loadSettings(), rec.network).broadcast;
+    const route=await chrome.runtime.sendMessage({target:'background',cmd:'broadcastNode',args:{networkContext:rec.network}});
+    if(!route?.ok)throw new Error(route?.error||'The wallet could not choose the broadcast node.');
+    const server=route.data;
     if (!server) throw new Error('No broadcast server is set for this network');
     const body = light.submitRequest(rpc.id(), prepared, proofs);
     await rpc.assertRoute(server);

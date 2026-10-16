@@ -20,8 +20,9 @@ export const DEFAULTS = {
   servers: DEFAULT_SERVERS,
   workers: 'auto',
   autoLockMinutes: 15,
-  // Start proving right after a block arrives, to finish before the next one.
-  waitForFreshBlock: true,
+  // Optional timing optimization; normal sends start from the current tip.
+  waitForFreshBlock: false,
+  sendTimingConfigured: false,
   lowMemoryProving: 'auto', // 'auto' | 'on' | 'off'
   // Route the wallet's servers and price lookups through Tor on this computer.
   tor: false,
@@ -58,6 +59,7 @@ export const DEFAULTS = {
 /** Settings written by versions before 0.3 kept one server pair for the wallet's network. */
 function migrate(s) {
   const out = { ...DEFAULTS, ...s };
+  if(s.sendTimingConfigured!==true)out.waitForFreshBlock=false;
   out.recoveryModes = {...DEFAULTS.recoveryModes,...s.recoveryModes};
   out.createdWallets={standard:true,refresh:s.createdWallets?.refresh===true || s.autoRefresh===true,encrypted:s.createdWallets?.encrypted===true || s.privateNotifications===true};
   out.servers = {};
@@ -76,10 +78,15 @@ export async function load() {
   return migrate((await db.get(db.STORES.kv, 'settings')) || {});
 }
 
-export async function save(patch) {
-  const next = migrate({ ...(await load()), ...patch });
-  await db.put(db.STORES.kv, 'settings', next);
-  return next;
+let writes=Promise.resolve();
+export function save(patch) {
+  const write=async()=>{
+    const previous=await load();
+    const next=migrate({...previous,...patch,recoveryModes:{...previous.recoveryModes,...patch.recoveryModes}});
+    await db.put(db.STORES.kv,'settings',next);
+    return next;
+  };
+  const result=writes.then(write,write);writes=result.catch(()=>{});return result;
 }
 
 /** The server pair for a network (the wallet's current one by default). */

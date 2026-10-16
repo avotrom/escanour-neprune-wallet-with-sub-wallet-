@@ -594,12 +594,16 @@
           <button class="seg-btn" data-net="testnet" data-i18n="net.testnet">Testnet</button>
           <button class="seg-btn" data-net="testnet-mock" data-i18n="net.mockShort">Mock testnet</button>
         </div>
-        <label class="field"><span data-i18n="srv.sync">Sync server</span>
+        <label class="field"><span data-i18n="srv.nodeA">Node A</span>
           <input id="setSync" spellcheck="false" placeholder="https://" />
         </label>
+        <label class="row"><span data-i18n="srv.pool">Random node with fallback</span><input id="setNodePool" type="checkbox" class="switch" /></label>
+        <p class="hint" data-i18n="srv.poolHint">Choose A or B once per browser session. If a read fails, switch to the other. Uses only these two configured nodes.</p>
+        <label id="nodeBField" class="field" hidden><span data-i18n="srv.nodeB">Node B</span><input id="setNodeB" spellcheck="false" placeholder="https://" /></label>
+        <p id="nodeSessionStatus" class="hint" role="status"></p>
         <label class="field"><span data-i18n="srv.broadcast">Broadcast server</span>
           <input id="setBroadcast" spellcheck="false" placeholder="https://" />
-          <small class="hint" data-i18n="srv.hint">A different operator here keeps any one server from seeing both your syncing and your payments.</small>
+          <small class="hint" data-i18n="srv.poolBroadcastHint">Leave empty to use the session node. A different address here overrides it for sending. Uploads are never automatically retried.</small>
         </label>
         <div class="row2">
           <button id="testServer" class="btn soft" data-i18n="srv.test">Test connection</button>
@@ -679,6 +683,8 @@
         <span class="icon-space"></span>
       </header>
       <div class="pad stack">
+        <label class="row"><span class="r-ic c2"><svg><use href="#i-change"/></svg></span><span data-i18n="adv.waitBlock">Wait for a fresh block</span><input id="setWaitBlock" type="checkbox" class="switch" /></label>
+        <small class="hint" data-i18n="adv.waitBlockHint">Off by default. When on, waits briefly for the next block before building. Proof validation stays the same.</small>
         <label class="field"><span data-i18n="adv.workers">Proving workers</span>
           <select id="setWorkers">
             <option value="auto" data-i18n="adv.workersAuto">Automatic</option>
@@ -783,6 +789,7 @@
         </fieldset>
         <label id="assetNodeField" class="field" hidden><span data-i18n="node.url">Node address</span><input id="assetNodeUrl" type="url" value="http://127.0.0.1:9797/" spellcheck="false" dir="ltr" /></label>
         <button id="assetRecover" class="btn primary" data-i18n="assets.start">Find my assets</button>
+        <button id="assetPause" class="btn soft" data-i18n="assets.stop" hidden>Stop scan</button>
         <div class="bar-track"><div id="assetRecoveryBar"></div></div><p id="assetRecoveryStatus" class="hint center" role="status"></p><p id="assetRecoveryError" class="err" role="alert"></p>
         <p class="hint small" data-i18n="assets.scope">Saved for this sub-wallet. Local block scans can update all balances.</p>
         <button id="assetEncryptedRecovery" class="btn soft" data-i18n="recovery.encryptedTitle" hidden>Encrypted address recovery</button>
@@ -1017,6 +1024,7 @@
       <p id="pgPrivateMode" class="private-mode-indicator" hidden data-i18n="private.progress">Private notification · message sealed before proving</p>
       <ol class="steps">
         <li data-step="wait"><span></span><i data-i18n="pg.wait">Waiting for a fresh block</i></li>
+        <li data-step="check"><span></span><i data-i18n="pg.checking">Checking the latest block</i></li>
         <li data-step="build"><span></span><i data-i18n="pg.build">Building the transaction</i></li>
         <li data-step="prove"><span></span><i data-i18n="pg.prove">Proving on this computer</i> <em id="pgCount"></em></li>
         <li data-step="send"><span></span><i data-i18n="pg.send">Broadcasting</i></li>

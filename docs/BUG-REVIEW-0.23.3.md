@@ -1,5 +1,7 @@
 # Wallet logic, features and security review — 0.23.3
 
+**Follow-up:** The refresh checks below missed never-resolving replies and long scans. [BUG-REVIEW-0.23.4.md](BUG-REVIEW-0.23.4.md) records the correction and additional send/recovery scenarios.
+
 This targeted source and regression review checks the three-sub-wallet prototype, payment codes, archive recovery, manual scans and Available refresh. It does not certify that every feature is bug-free or that the wallet is ready for real funds. No real seed or funds were used. The original supplied ZIP and Neptune dependency pin are unchanged.
 
 ## Fixes and evidence

@@ -177,13 +177,23 @@ async function status(network) {
   return r[`status:${n}`] || {};
 }
 
+async function recoveryStatuses(network) {
+  const n=network||await currentNetwork();
+  return (await chrome.storage.session.get(`recoveries:${n}`))[`recoveries:${n}`]||{};
+}
 let statusWrites = Promise.resolve();
 function setStatus(patch, network) {
   const write = async () => {
     const n = network || (await currentNetwork());
     const next = { ...(await status(n)), ...patch };
     await chrome.storage.session.set({ [`status:${n}`]: next });
-    notify('status', { network: n, status: next });
+    const recoveries=await recoveryStatuses(n);
+    const owner=next.recoveryWallet||next.restored&&next.recoveryMode&&'standard';
+    if(['standard','refresh','encrypted'].includes(owner)) {
+      recoveries[owner]={...next};
+      await chrome.storage.session.set({[`recoveries:${n}`]:recoveries});
+    }
+    notify('status', { network: n, status: next, recoveries });
     return next;
   };
   const result = statusWrites.then(write, write);
@@ -384,10 +394,10 @@ async function expireOldSends(key, height) {
 // ----------------------------------------------------------------- sync ----
 
 // The tip check runs every minute, so it is plain JSON: no wasm to load.
-async function fetchHeight(server, { interruptible = false } = {}) {
+async function fetchHeight(server, { interruptible = false, direct = false } = {}) {
   if (!server) throw new Error('NEED_SERVER');
   const body = JSON.stringify({ jsonrpc: '2.0', id: rpc.id(), method: 'chain_height', params: [] });
-  const text = await rpc.post(server, body, { timeoutMs: 20_000, interruptible });
+  const text = await (direct?rpc.post:rpc.read)(server, body, { timeoutMs: 20_000, interruptible });
   const h = JSON.parse(text)?.result?.height;
   const n = typeof h === 'string' ? Number(h) : h;
   if (Number.isSafeInteger(n) && n >= 0) return n;
@@ -402,7 +412,7 @@ async function fetchHeight(server, { interruptible = false } = {}) {
  */
 async function initialState(wallet, server, height) {
   if (height <= 0) return wallet.genesisState();
-  const body = await rpc.post(server, light.getBlocksRequest(rpc.id(), height, height));
+  const body = await rpc.read(server, light.getBlocksRequest(rpc.id(), height, height),{timeoutMs:BLOCKS_TIMEOUT_MS,interruptible:true});
   return wallet.stateFromBlock(body);
 }
 
@@ -413,7 +423,7 @@ async function heightAtDate(server, dateMs) {
   let h = tip - Math.round((Date.now() - dateMs) / BLOCK_TIME_MS);
   for (let i = 0; i < 5; i++) {
     h = Math.min(tip, Math.max(1, h));
-    const info = light.blockInfo(await rpc.post(server, light.getBlocksRequest(rpc.id(), h, h)));
+    const info = light.blockInfo(await rpc.read(server, light.getBlocksRequest(rpc.id(), h, h)));
     const diff = info.timestamp_ms - dateMs;
     if (Math.abs(diff) < 6 * 3600_000) break;
     h -= Math.round(diff / BLOCK_TIME_MS);
@@ -448,7 +458,7 @@ async function setTorState(next) {
 function torHosts(s) {
   const hosts = new Set(['api.coingecko.com', 'check.torproject.org']);
   for (const srv of Object.values(s.servers || {})) {
-    for (const u of [srv.sync, srv.broadcast]) {
+    for (const u of [srv.sync, srv.fallback, srv.broadcast]) {
       try {
         const h = new URL(u).hostname;
         if (h && !isLocalHost(h)) hosts.add(h);
@@ -643,7 +653,7 @@ async function fetchBlocksAt(server, heights, onBody, stopEarly = false) {
       let body;
       for (let attempt = 0; ; attempt++) {
         try {
-          body = await rpc.post(server, light.getBlocksRequest(rpc.id(), from, to), { timeoutMs: BLOCKS_TIMEOUT_MS, interruptible: true });
+          body = await rpc.read(server, light.getBlocksRequest(rpc.id(), from, to), { timeoutMs: BLOCKS_TIMEOUT_MS, interruptible: true });
           break;
         } catch (e) {
           if (e.message === 'SCAN_INTERRUPTED' || attempt >= 3) throw e;
@@ -661,10 +671,11 @@ async function fetchBlocksAt(server, heights, onBody, stopEarly = false) {
  * instead of a full scan; the server learns which coins are the wallet's.
  * Throws FAST_UNSUPPORTED when the server has no UTXO index.
  */
-async function fastRestore(wallet, server, onProgress, previousState, profile) {
+async function fastRestore(wallet, server, onProgress, previousState, profile, additionalState) {
   const fr = profile ? light.FastRestore.forProfile(profile) : new light.FastRestore();
   try {
     if (previousState) fr.seedState(previousState);
+    if (additionalState) fr.seedState(additionalState);
     // 1. Which blocks hold payments to our keys. Each round can reveal keys
     //    beyond the look-ahead window; the next round asks about those too.
     let complete = false;
@@ -673,7 +684,7 @@ async function fastRestore(wallet, server, onProgress, previousState, profile) {
       if (!req) { complete = true; break; }
       let body;
       try {
-        body = await rpc.post(server, req, { timeoutMs: BLOCKS_TIMEOUT_MS, interruptible: true });
+        body = await rpc.read(server, req, { timeoutMs: BLOCKS_TIMEOUT_MS, interruptible: true });
       } catch (e) {
         if (e.message === 'SCAN_INTERRUPTED') throw e;
         if (round === 0) throw new Error(`FAST_UNSUPPORTED: ${e.message}`);
@@ -692,7 +703,7 @@ async function fastRestore(wallet, server, onProgress, previousState, profile) {
       for (let attempt = 0; ; attempt++) {
         try {
           for (let i = 0; i < chunks; i++) {
-            fr.applyRestore(i, await rpc.post(server, fr.restoreRequest(rpc.id(), i), { timeoutMs: BLOCKS_TIMEOUT_MS, interruptible: true }));
+            fr.applyRestore(i, await rpc.read(server, fr.restoreRequest(rpc.id(), i), { timeoutMs: BLOCKS_TIMEOUT_MS, interruptible: true }));
           }
           break;
         } catch (e) {
@@ -704,16 +715,17 @@ async function fastRestore(wallet, server, onProgress, previousState, profile) {
       const spentReq = fr.spentRequest(rpc.id());
       if (spentReq) {
         try {
-          const heights = fr.parseSpentHeights(await rpc.post(server, spentReq, { timeoutMs: BLOCKS_TIMEOUT_MS, interruptible: true }));
+          const heights = fr.parseSpentHeights(await rpc.read(server, spentReq, { timeoutMs: BLOCKS_TIMEOUT_MS, interruptible: true }));
           await fetchBlocksAt(server, heights, async (b) => fr.scanSpends(wallet, b));
-        } catch {
+        } catch(e) {
+          if(e.message==='SCAN_INTERRUPTED')throw e;
           // Without it, spent coins still count as spent; only their dates are missing.
         }
       }
     }
     // 4. Wallet state at the block the proofs belong to (the tip if nothing was found).
-    const h = fr.snapshotHeight() ?? (await fetchHeight(server));
-    const block = await rpc.post(server, light.getBlocksRequest(rpc.id(), h, h), { timeoutMs: BLOCKS_TIMEOUT_MS, interruptible: true });
+    const h = fr.snapshotHeight() ?? (await fetchHeight(server,{interruptible:true}));
+    const block = await rpc.read(server, light.getBlocksRequest(rpc.id(), h, h), { timeoutMs: BLOCKS_TIMEOUT_MS, interruptible: true });
     return fr.finish(wallet, block);
   } finally {
     fr.free?.();
@@ -727,16 +739,37 @@ async function runFastRestore({ key, wallet, s, server, st, snap }) {
   try {
     // Pending payment codes have no AOCL index yet. Previously confirmed
     // coins, including unannounced coins, are seeded into indexed recovery.
-    if (snap?.state && wallet.expectedList(snap.state).length) throw new Error('Waiting payment codes require a private full scan.');
+    const base=await db.get(db.STORES.kv,`recoveryBase:${s.network}`);
+    const baseState=base?await vault.decrypt(key,base.box):null;
+    const useBase=baseState&&base.height>snap.height;
+    const seed=useBase?wallet.carryOver(snap.state,baseState):snap?.state;
+    const waiting=seed?wallet.expectedList(st.recoveryWallet?profileState(wallet,seed,st.recoveryWallet):seed):[];
+    if(waiting.length)throw new Error('Waiting payment codes require a private full scan.');
     const out = await fastRestore(wallet, server, (p) => {
       return setStatus({ fastPhase: 'scan', fastFound: p.coins_found, fastBlocks: p.blocks_scanned });
-    }, snap?.state, st.recoveryWallet);
-    if (snap?.state && st.recoveryWallet) out.state = wallet.mergeRecoveredProfile(snap.state, out.state, st.recoveryWallet);
+    }, seed, st.recoveryWallet, snap?.state);
+    if (seed && st.recoveryWallet) {
+      let preserved=seed,height=useBase?base.height:snap.height;
+      const otherCoins=['standard','refresh','encrypted'].some(p=>p!==st.recoveryWallet&&wallet.summary(profileState(wallet,seed,p),Date.now()).utxos.length);
+      // Advance other wallets' proofs locally from the retained checkpoint.
+      // Never upload their coin identifiers just to change recovery method.
+      if(otherCoins&&height<out.height) {
+        await fetchInOrder(server,height+1,out.height,async body=>{
+          const next=wallet.applyBlocksWatching(preserved,body,'[]');
+          if(next.result.reorg||!next.result.applied)throw new Error('Recovery checkpoint does not connect to the indexed snapshot.');
+          preserved=next.state;height=next.result.height;
+          out.events=[...(out.events||[]),...(next.result.events||[])];
+        });
+        if(height!==out.height)throw new Error('SCAN_INTERRUPTED');
+      }
+      out.state=wallet.mergeRecoveredProfile(preserved,out.state,st.recoveryWallet);
+    }
     if (snap?.state) out.state = wallet.carryOver(snap.state, out.state);
     await dropSnapshots(s.network);
     await saveSnapshot(key, out.height, out.state);
     if (out.events?.length && (await recordBlockEvents(key, out.events))) notify('activity');
-    await db.put(db.STORES.kv, `fastRestored:${s.network}`, { mode, server, at: Date.now() });
+    const used=await rpc.nodeSession(s);
+    await db.put(db.STORES.kv, `fastRestored:${s.network}`, { mode, server:used.url||server, servers:used.enabled?used.nodes:[used.url||server], at: Date.now() });
     await setStatus({ fastPending: null, fastPhase: null, fastFailed: null, height: out.height, startHeight: out.height, restored: true });
     return { height: out.height, state: out.state };
   } catch (e) {
@@ -766,21 +799,24 @@ function scheduleFollowUp() {
   }, 200);
 }
 
-const syncOnce = singleFlight(() => keepAlive(() =>
-    exclusive(async () => {
+async function syncStep({walletOnly=false}={}) {
       await migrateStorage();
       if (!(await vault.sessionKey())) return;
       const s0 = await settingsStore.load();
+      if ((await status(s0.network)).scanPaused && !walletOnly) return;
       if (s0.tor && !(await torState()).required) await applyTor();
       const server = settingsStore.serversFor(s0).sync;
 
       let tip;
       try {
+        await setStatus({ checking: true });
         tip = await fetchHeight(server, { interruptible: true });
       } catch (e) {
         if (e.message === 'SCAN_INTERRUPTED') throw e;
         await setStatus({ serverOk: false, lastCheckAt: Date.now(), error: e.message === 'NEED_SERVER' ? 'NEED_SERVER' : null });
         throw e;
+      } finally {
+        await setStatus({ checking: false });
       }
       const st = await status();
       // Nothing new on chain: a status update and done. The wallet is not
@@ -790,8 +826,8 @@ const syncOnce = singleFlight(() => keepAlive(() =>
         || (st.spendIndex && st.spendIndex.total >= savedHeight && st.spendIndex.have >= st.spendIndex.total);
       const archiveDone = !s0.localArchive || (st.archive && st.archive.state === 'ready'
         && st.archive.target >= Math.max(0, savedHeight - ARCHIVE_LAG) && !st.adoptPending);
-      if (savedHeight != null && savedHeight >= tip && st.height === savedHeight && !st.fastPending && !st.error && indexDone && !st.watchBehind && archiveDone) {
-        await setStatus({ serverOk: true, lastCheckAt: Date.now(), tip, syncing: false });
+      if (savedHeight != null && savedHeight >= tip && st.height === savedHeight && !st.fastPending && !st.error && (walletOnly || (indexDone && !st.watchBehind && archiveDone))) {
+        await setStatus({ serverOk: true, lastCheckAt: Date.now(), tip, syncing: false,node:await rpc.nodeSession(s0) });
         return;
       }
 
@@ -806,7 +842,7 @@ const syncOnce = singleFlight(() => keepAlive(() =>
         snap = (await runFastRestore({ key, wallet, s, server, st, snap })) || snap;
       }
       await setStatus({
-        serverOk: true, lastCheckAt: Date.now(), tip,
+        node:await rpc.nodeSession(s),serverOk: true, lastCheckAt: Date.now(), tip,
         lastTipChangeAt: !st.tip || tip > st.tip ? Date.now() : st.lastTipChangeAt,
         syncing: snap.height < tip, height: snap.height, error: null,
         startHeight: st.startHeight ?? snap.height,
@@ -829,7 +865,7 @@ const syncOnce = singleFlight(() => keepAlive(() =>
           const from = nextFrom;
           const to = Math.min(from + tune.size - 1, runEnd);
           const job = { from, to, started: Date.now() };
-          job.body = rpc.post(server, light.getBlocksRequest(rpc.id(), from, to), { timeoutMs: BLOCKS_TIMEOUT_MS, interruptible: true });
+          job.body = rpc.read(server, light.getBlocksRequest(rpc.id(), from, to), { timeoutMs: BLOCKS_TIMEOUT_MS, interruptible: true });
           job.body.then(() => { job.ms = Date.now() - job.started; }, () => {}); // a discarded batch must not raise
           pending.push(job);
           nextFrom = to + 1;
@@ -934,7 +970,7 @@ const syncOnce = singleFlight(() => keepAlive(() =>
       // other actions (send, receive, settings) are never blocked for long.
       if (snap.height < tip) {
         scheduleFollowUp();
-      } else {
+      } else if (!walletOnly) {
         // Caught up. Background work, one chunk per run, each retried on the
         // next run if it fails: watch-only addresses that lag behind, then the
         // local archive (which also fills the spend index), or else the
@@ -964,12 +1000,22 @@ const syncOnce = singleFlight(() => keepAlive(() =>
         }
         if (more) scheduleFollowUp();
       }
-    }),
-  ).catch(async (e) => {
-    if (e.message === 'SCAN_INTERRUPTED') { scheduleFollowUp(); return; }
-    if (e.message !== 'NEED_SERVER') await setStatus({ syncing: false, error: String(e.message || e) }).catch(() => {});
-    throw e;
+}
+
+// Report failures before releasing the lock: a previous scan must not write
+// its error over a replacement scan's freshly committed status.
+function performSync(options={}) {
+  const run=options.foreground?exclusiveNow:exclusive;
+  return keepAlive(()=>run(async()=>{
+    try {return await syncStep(options);}
+    catch(e) {
+      if(e.message==='SCAN_INTERRUPTED'){scheduleFollowUp();return;}
+      if(e.message!=='NEED_SERVER')await setStatus({syncing:false,error:String(e.message||e)}).catch(()=>{});
+      throw e;
+    }
   }));
+}
+const syncOnce=singleFlight(()=>performSync());
 
 // --------------------------------------------- blocks in strict order -----
 
@@ -986,7 +1032,7 @@ async function fetchInOrder(server, from, to, onBody) {
     const p = (async () => {
       for (let attempt = 0; ; attempt++) {
         try {
-          return await rpc.post(server, light.getBlocksRequest(rpc.id(), a, b), { timeoutMs: BLOCKS_TIMEOUT_MS, interruptible: true });
+          return await rpc.read(server, light.getBlocksRequest(rpc.id(), a, b), { timeoutMs: BLOCKS_TIMEOUT_MS, interruptible: true });
         } catch (e) {
           if (e.message === 'SCAN_INTERRUPTED' || yieldNow()) throw e;
           if (attempt >= 3) throw e;
@@ -1047,7 +1093,7 @@ async function watchFastStep({ key, wallet, server, snap, account, pref, net }) 
   try {
     const source = pref.mode === 'node' ? pref.server : server;
     if (!source) throw new Error('Choose a node URL for this watched address');
-    const post = (body) => rpc.post(source, body, { timeoutMs: BLOCKS_TIMEOUT_MS, interruptible: true });
+    const post = (body) => rpc.read(source, body, { timeoutMs: BLOCKS_TIMEOUT_MS, interruptible: true });
     if (task.phase === 'flags') {
       task.heights = Array.from(scan.heights(await post(scan.flagsRequest(rpc.id())), false));
       task.phase = 'receipts'; task.next = 0;
@@ -1332,7 +1378,7 @@ async function archiveEstimate(s) {
 async function blockTime(server, height) {
   if (height <= 0) return 0;
   try {
-    return light.blockInfo(await rpc.post(server, light.getBlocksRequest(rpc.id(), height, height))).timestamp_ms;
+    return light.blockInfo(await rpc.read(server, light.getBlocksRequest(rpc.id(), height, height))).timestamp_ms;
   } catch {
     return 0;
   }
@@ -1343,7 +1389,7 @@ async function adoptWaiting({ key, wallet, server, snap, a }) {
   if (!wallet.expectedList(snap.state).length) return [];
   if (a.height() > snap.height) return [];
   const body = a.height() < snap.height
-    ? await rpc.post(server, light.getBlocksRequest(rpc.id(), a.height() + 1, snap.height), { timeoutMs: BLOCKS_TIMEOUT_MS })
+    ? await rpc.read(server, light.getBlocksRequest(rpc.id(), a.height() + 1, snap.height), { timeoutMs: BLOCKS_TIMEOUT_MS })
     : undefined;
   const out = wallet.adoptFromArchive(snap.state, a, body);
   if (!out.adopted.length) return [];
@@ -1451,7 +1497,14 @@ async function saveSend(rec) {
   notify('send', { send: { ...rec, prepared: undefined, sealed: undefined } });
 }
 
-const ACTIVE = ['starting', 'waiting-block', 'preparing', 'rebuilding', 'proving', 'proved', 'submitting', 'uncertain', 'needs-lustration'];
+const ACTIVE = ['starting', 'waiting-block', 'checking', 'preparing', 'rebuilding', 'proving', 'proved', 'submitting', 'uncertain', 'needs-lustration'];
+
+async function selectedSend(id) {
+  const {s}=await requireWallet(),rec=await getSend(id);
+  if(!rec)throw new Error('Payment not found');
+  if(rec.network!==s.network||(rec.walletMode||'standard')!==activeMode(s))throw new Error('Select the payment’s sub-wallet and network.');
+  return rec;
+}
 
 async function activeSend(network) {
   for (const id of await db.keys(db.STORES.sends)) {
@@ -1484,7 +1537,7 @@ async function startSend(req) {
       amount: req.amount,
       fee: req.fee,
       acceptLustration: Boolean(req.acceptLustration),
-      waitForFreshBlock: req.waitForFreshBlock !== false,
+      waitForFreshBlock: s.waitForFreshBlock === true,
       attempt: 1,
       pinned: null,
       createdAt: Date.now(),
@@ -1506,13 +1559,16 @@ function guarded(id, fn) {
 }
 
 async function failSend(rec, error) {
+  const latest=await getSend(rec.id);
+  if(['cancelled','done'].includes(latest?.status))return;
   if(rec.broadcastUncertain) {
     rec.status='uncertain';
     await saveSend(rec);
     return;
   }
+  const phase=rec.status;
   rec.status = 'failed';
-  rec.error = friendlyError(error);
+  rec.error = friendlyError(error,phase);
   pushNotice('failed', { e: rec.error });
   delete rec.prepared;
   await saveSend(rec);
@@ -1521,12 +1577,13 @@ async function failSend(rec, error) {
   await closeOffscreenIfIdle();
 }
 
-function friendlyError(e) {
+function friendlyError(e,phase) {
   const m = String(e?.message || e || '');
   if (/HTTP 413|RequestBodyTooBig|too big|too large/i.test(m)) {
     return 'The broadcast server refused the transaction because of its size. Choose another broadcast server in Settings > Servers.';
   }
   if (/Failed to fetch|NetworkError|aborted|timed out/i.test(m)) {
+    if(['checking','preparing'].includes(phase))return 'Could not reach the node while preparing the payment. Check your connection and retry.';
     return 'Could not confirm the broadcast result. Check your transaction history before retrying; the node may already have received this payment.';
   }
   if (/FeeNegative|fee/i.test(m) && /node:/.test(m)) return `The node refused the fee. ${m}`;
@@ -1544,6 +1601,8 @@ function runSend(id) {
       const { key, wallet, s } = w;
       if (s.network !== rec.network) return; // resumes when that network is active again
 
+      if(rec.waitForFreshBlock&&s.waitForFreshBlock!==true){rec.waitForFreshBlock=false;await saveSend(rec);}
+
       // Timing: start right after a block, so proving finishes before the next.
       if (rec.waitForFreshBlock && rec.attempt === 1) {
         const st = await status();
@@ -1559,12 +1618,17 @@ function runSend(id) {
         }
       }
 
-      rec.status = 'preparing';
+      rec.status = 'checking';
       await saveSend(rec);
-      await syncOnce();
+      await performSync({walletOnly:true,foreground:true});
       if (await wasCancelled(id)) return;
 
       const snap = await latestSnapshot(key);
+      const checked=await status(s.network);
+      if(checked.error||checked.serverOk===false||snap.height<checked.tip)throw new Error(checked.error||'The wallet has not caught up. Refresh assets before sending.');
+      rec.status='preparing';rec.preparingStartedAt=Date.now();
+      await saveSend(rec);
+      if(await wasCancelled(id))return;
       const out = wallet.prepareSend(
         snap.state, rec.to, rec.amount, rec.fee, Date.now(),
         rec.pinned ? new Float64Array(rec.pinned) : undefined,
@@ -1573,6 +1637,7 @@ function runSend(id) {
         rec.privateMessage || undefined,
         rec.walletMode || 'standard',
       );
+      rec.preparationMs=Date.now()-rec.preparingStartedAt;
       rec.view = out.view;
       rec.pinned = out.view.input_aocl_indices;
       rec.prepared = await vault.encrypt(key, out.prepared);
@@ -1592,6 +1657,7 @@ function runSend(id) {
       await dispatchProve(rec);
     } catch (e) {
       rec = (await getSend(id)) || rec;
+      if(rec.status==='cancelled')return;
       const msg = String(e.message || e);
       if (msg.includes('LUSTRATION_REQUIRED')) {
         rec.status = 'needs-lustration';
@@ -1608,7 +1674,7 @@ async function wasCancelled(id) {
   return (await getSend(id))?.status === 'cancelled';
 }
 
-const CANCELLABLE = ['starting', 'waiting-block', 'preparing', 'rebuilding', 'proving', 'needs-lustration'];
+const CANCELLABLE = ['starting', 'waiting-block', 'checking', 'preparing', 'rebuilding', 'proving', 'needs-lustration'];
 
 /** Stop a payment that has not reached the network yet. */
 async function cancelSend(id) {
@@ -1761,7 +1827,7 @@ async function resumeSends() {
 
     if (['starting', 'waiting-block'].includes(rec.status)) {
       await runSend(id);
-    } else if (['preparing', 'rebuilding'].includes(rec.status) && stalled) {
+    } else if (['checking', 'preparing', 'rebuilding'].includes(rec.status) && stalled) {
       rec.status = rec.attempt > 1 ? 'rebuilding' : 'starting';
       await saveSend(rec);
       await runSend(id);
@@ -1925,10 +1991,11 @@ async function startHeight(server, { birthday, birthdayDate }) {
 
 /** Include the chosen node in the proxy rules BEFORE any recovery request. */
 async function configureRecoveryNode(s, network, url) {
-  const saved=await settingsStore.save({servers:{...s.servers,[network]:{sync:url,broadcast:url}}});
+  if(s.tor){rpc.interrupt();await setTorState({state:'connecting',port:Number(s.torPort)||9150});}
+  const saved=await settingsStore.save({servers:{...s.servers,[network]:{sync:url,broadcast:url,fallback:'',randomFallback:false}}});
   if(saved.tor) {
     if(!(await torState()).required)await setTorState({state:'connecting',port:Number(saved.torPort)||9150});
-    await applyTor({check:false});
+    await applyTor({check:true});
   }
   return saved;
 }
@@ -1997,6 +2064,7 @@ const commands = {
       settings: s,
       tor: { ...(await torState()), hosts: torHosts(s) },
       status: await status(s.network),
+      recoveries: await recoveryStatuses(s.network),
       send: await latestSend(s.network),
       networks: Object.fromEntries(
         await Promise.all(settingsStore.NETWORKS.map(async (n) => [n, (await snapHeights(n)).length > 0])),
@@ -2093,7 +2161,8 @@ const commands = {
       walletSettings:{activeMode:activeMode(s),createdWallets:s.createdWallets,autoRefresh:s.autoRefresh,privateNotifications:s.privateNotifications},
       createdWallets:s.createdWallets,
       profile: activeMode(s),
-      allActivity: activity,
+      send:await latestSend(s.network),
+      recoveries:await recoveryStatuses(s.network),
       summary: wallet.summary(profileState(wallet,snap.state,activeMode(s)), Date.now()),
       addresses: Object.fromEntries(['generation','ec-hybrid'].map(kind=>[kind,receivingAddress(wallet,s,snap.state,activity,kind).address])),
       activity: activityForMode(activity,activeMode(s)),
@@ -2125,10 +2194,11 @@ const commands = {
     let sameServer = true;
     let ownNode = false;
     try {
-      const a = new URL(srv.sync).hostname;
-      const b = new URL(srv.broadcast).hostname;
-      sameServer = a === b;
-      ownNode = ['localhost', '127.0.0.1'].includes(a) && ['localhost', '127.0.0.1'].includes(b);
+      const chosen=await rpc.nodeSession(s);
+      const hosts=(chosen.enabled?chosen.nodes:[chosen.url||srv.sync]).map(u=>new URL(u).hostname);
+      const b=new URL(await commands.broadcastNode({networkContext:s.network})).hostname;
+      sameServer=hosts.includes(b);
+      ownNode=hosts.every(isLocalHost)&&isLocalHost(b);
     } catch {
       /* missing server: reported elsewhere */
     }
@@ -2141,9 +2211,22 @@ const commands = {
       } catch {
         /* keep empty */
       }
-      fastRestored = { host, own: fast.mode === 'node' || ['localhost', '127.0.0.1'].includes(host), at: fast.at };
+      const urls=fast.servers||[fast.server];
+      const allLocal=urls.every(u=>{try{return isLocalHost(new URL(u).hostname);}catch{return false;}});
+      fastRestored = { host, own: allLocal||(urls.length===1&&fast.mode==='node'), at: fast.at };
     }
     return { ...report, sameServer: sameServer && !ownNode, ownNode, fastRestored, priceLookup: s.priceLookup !== false && s.currency !== 'off' };
+  },
+
+  // Refresh is a request to the existing single-flight scanner. Reply before
+  // waiting for RPC, blocks, archive/index work or the shared wallet lock.
+  async requestSync({ networkContext } = {}) {
+    const s=await settingsStore.load();
+    if(networkContext&&networkContext!==s.network)throw new Error('The network changed. Refresh again.');
+    if(!(await vault.sessionKey()))throw new Error('Wallet is locked');
+    if((await status(s.network)).scanPaused)throw new Error('Recovery is paused. Resume it from Recover assets.');
+    syncOnce().then(()=>resumeSends()).catch(()=>{});
+    return {network:s.network,queued:true};
   },
 
   async sync() {
@@ -2196,16 +2279,29 @@ const commands = {
     return fetchPriceHistory(s.currency);
   },
 
+  async nodeSession({network}={}) {
+    const s=await settingsStore.load();
+    if(network&&!settingsStore.NETWORKS.includes(network))throw new Error('Unknown network');
+    return rpc.nodeSession(s,network||s.network);
+  },
+  async broadcastNode({networkContext}={}) {
+    const s=await settingsStore.load();
+    if(!settingsStore.NETWORKS.includes(networkContext))throw new Error('Unknown network');
+    const srv=settingsStore.serversFor(s,networkContext);
+    if(srv.broadcast&&srv.broadcast!==srv.sync)return srv.broadcast;
+    return (await rpc.nodeSession(s,networkContext)).url||srv.broadcast;
+  },
+
   async testServer({ url }) {
     await wasm();
-    return fetchHeight(rpc.normalizeServer(url));
+    return fetchHeight(rpc.normalizeServer(url),{direct:true});
   },
 
   /** What a server offers: its tip, its network, and the optional features
    *  the wallet can use (fast restore via the UTXO index). */
   async serverInfo({ url }) {
     const server = rpc.normalizeServer(url);
-    const height = await fetchHeight(server);
+    const height = await fetchHeight(server,{direct:true});
     const probe = async (method, params) => {
       try {
         const text = await rpc.post(server, JSON.stringify({ jsonrpc: '2.0', id: rpc.id(), method, params }), { timeoutMs: 15_000 });
@@ -2251,6 +2347,7 @@ const commands = {
     if (!info.valid) throw new Error(info.error || 'Not a valid address');
     validatePrivateSend(s, info, req.notificationMode || 'auto', String(req.privateMessage || ''));
     const profile=activeMode(s);
+    if(req.networkContext&&req.networkContext!==s.network)throw new Error('Network changed. Review this payment again.');
     if(req.walletMode && req.walletMode!==profile) throw new Error('Sub-wallet changed. Review this payment again.');
     if(profile==='encrypted' && info.kind!=='private-app') throw new Error('The Encrypted sub-wallet requires an encrypted receiving address.');
     return startSend({ ...req, walletMode:profile, toKind: info.kind, networkContext:s.network });
@@ -2271,6 +2368,7 @@ const commands = {
   },
 
   async cancelSend({ id }) {
+    await selectedSend(id);
     await cancelSend(id);
     return true;
   },
@@ -2336,7 +2434,7 @@ const commands = {
   },
 
   async dismissSend({ id }) {
-    const rec = await getSend(id);
+    const rec = await selectedSend(id);
     if (rec && ['failed', 'done', 'needs-lustration'].includes(rec.status)) {
       rec.status = rec.status === 'needs-lustration' ? 'failed' : rec.status;
       rec.dismissed = true;
@@ -2352,7 +2450,8 @@ const commands = {
   },
 
   async acceptLustrationAndRetry({ id }) {
-    const rec = await getSend(id);
+    const rec = await selectedSend(id);
+    if(rec.status!=='needs-lustration')throw new Error('This payment is not awaiting amount-disclosure approval.');
     rec.acceptLustration = true;
     rec.status = 'starting';
     rec.error = null;
@@ -2368,6 +2467,7 @@ const commands = {
 
   async saveSettings(patch) {
     const clean = { ...patch };
+    if('waitForFreshBlock' in clean){clean.waitForFreshBlock=clean.waitForFreshBlock===true;clean.sendTimingConfigured=true;}
     if (clean.privateNotifications === true && (await settingsStore.load()).network === 'main') {
       throw new Error('Private app notifications are experimental and disabled on mainnet.');
     }
@@ -2377,9 +2477,12 @@ const commands = {
       for (const [n, v] of Object.entries(clean.servers)) {
         servers[n] = {
           sync: v.sync ? rpc.normalizeServer(v.sync) : '',
+          fallback:v.fallback?rpc.normalizeServer(v.fallback):'',
+          randomFallback:v.randomFallback===true,
           broadcast: v.broadcast ? rpc.normalizeServer(v.broadcast) : v.sync ? rpc.normalizeServer(v.sync) : '',
         };
       }
+      for(const v of Object.values(servers))if(v.randomFallback&&(!v.sync||!v.fallback||v.sync===v.fallback))throw new Error('Enter two different node addresses for random selection and fallback.');
       clean.servers = servers;
     }
     delete clean.network; // use switchNetwork
@@ -2388,9 +2491,16 @@ const commands = {
     if (clean.privateNotifications === false && (await settingsStore.load()).activeMode === 'encrypted') clean.activeMode = 'standard';
     if (clean.tor === true) { rpc.interrupt(); await setTorState({ state: 'connecting', port: Number(clean.torPort) || 9150 }); }
     if (clean.autoRefresh === false && (await settingsStore.load()).activeMode === 'refresh') clean.activeMode = 'standard';
+    // Block remote requests before publishing newly configured hosts. Until
+    // their PAC routes are installed, an old 'on' state would allow direct
+    // access to a new fallback host.
+    const before=await settingsStore.load();
+    if(clean.servers&&before.tor){rpc.interrupt();await setTorState({state:'connecting',port:Number(clean.torPort||before.torPort)||9150});}
+    if(clean.servers)for(const n of Object.keys(patch.servers||{}))await rpc.resetNodeSession(n);
     const saved = await settingsStore.save(clean);
+    if('waitForFreshBlock' in clean&&!saved.waitForFreshBlock)resumeSends().catch(()=>{});
     // Servers or Tor changed: the proxy script must name the right hosts.
-    if ('tor' in clean || 'torPort' in clean || clean.servers) await applyTor({ check: 'tor' in clean || 'torPort' in clean }).catch(() => {});
+    if ('tor' in clean || 'torPort' in clean || clean.servers) await applyTor({ check: 'tor' in clean || 'torPort' in clean || Boolean(clean.servers&&saved.tor) }).catch(() => {});
     return saved;
   },
 
@@ -2434,6 +2544,34 @@ const commands = {
     });
   },
 
+  async setRecoveryMode({walletMode,networkContext,mode}={}) {
+    const {s}=await requireWallet();
+    if(networkContext!==s.network||walletMode!==activeMode(s))throw new Error('The selected wallet changed. Open recovery again.');
+    mode=notificationRestoreMode(s.network,mode);
+    return settingsStore.save({recoveryModes:{[walletMode]:mode}});
+  },
+
+  async pauseRecovery({walletMode,networkContext}={}) {
+    const initial=await requireWallet();
+    if(networkContext!==initial.s.network||walletMode!==activeMode(initial.s))throw new Error('The selected wallet changed. Open recovery again.');
+    return exclusiveNow(async()=>{
+      const current=await requireWallet(),st=await status(current.s.network);
+      if(current.wallet!==initial.wallet||current.s.network!==networkContext||activeMode(current.s)!==walletMode||(st.recoveryWallet||'standard')!==walletMode)throw new Error('The selected recovery changed.');
+      await setStatus({scanPaused:true,syncing:false,checking:false,error:null,fastPhase:null});
+      return {status:await status(),recoveries:await recoveryStatuses()};
+    });
+  },
+  async resumeRecovery({walletMode,networkContext}={}) {
+    const initial=await requireWallet();
+    await exclusiveNow(async()=>{
+      const current=await requireWallet(),st=await status(current.s.network);
+      if(current.wallet!==initial.wallet||current.s.network!==networkContext||activeMode(current.s)!==walletMode||(st.recoveryWallet||'standard')!==walletMode)throw new Error('The selected recovery changed.');
+      await setStatus({scanPaused:false,error:null,serverOk:null});
+    });
+    scheduleFollowUp();
+    return {status:await status(),recoveries:await recoveryStatuses()};
+  },
+
   /** Scan again from an earlier point: finds payments a restore without a date missed. */
   async rescan({ birthday = 0, birthdayDate, mode = 'private', nodeUrl, walletMode, networkContext, encryptedOnly = false, rememberMode = true } = {}) {
     const { key, wallet, s } = await requireWallet();
@@ -2451,7 +2589,13 @@ const commands = {
       if(current.wallet!==wallet || current.s.network!==network || activeMode(current.s)!==profile)throw new Error('The selected wallet changed. Open recovery again.');
       const old = await latestSnapshot(key);
       if(await activeSend(network) || (old && wallet.summary(old.state,Date.now()).utxos.some(u=>u.reserved&&u.spent_height==null)))throw new Error('A payment is still pending. Wait for confirmation, expiry, or cancel it before starting recovery.');
+      if(old) {
+        const base=await db.get(db.STORES.kv,`recoveryBase:${network}`);
+        if(!base||old.height>=base.height)await db.put(db.STORES.kv,`recoveryBase:${network}`,{height:old.height,box:await vault.encrypt(key,old.state)});
+      }
       if(mode==='node')await configureRecoveryNode(current.s,network,server);
+      const previous=await status(network);
+      if(previous.recoveryMode&&(previous.recoveryWallet||'standard')!==profile)await setStatus({scanPaused:true,syncing:false,checking:false,fastPhase:null});
       start=await startHeight(server,{birthday:birthdayDate?undefined:birthday,birthdayDate});
       if(mode==='private' && old) {
         // A later requested height must not hide receipts we already know.
@@ -2469,9 +2613,9 @@ const commands = {
       }
       const fastPending = indexed ? mode : null;
       if(rememberMode)await settingsStore.save({recoveryModes:{...current.s.recoveryModes,[profile]:mode}});
-      await setStatus({ height: indexed && old ? old.height : start, startHeight:start, recoveryStart:start, syncing: true, error: null, restored: true, recoveryMode:mode, recoveryWallet:activeMode(s), fastPending, fastPhase:null, fastFailed:null });
+      await setStatus({ scanPaused:false,serverOk:null,checking:false,height: indexed && old ? old.height : start, startHeight:start, recoveryStart:start, syncing: true, error: null, restored: true, recoveryMode:mode, recoveryWallet:activeMode(s), fastPending, fastPhase:null, fastFailed:null });
     });
-    syncOnce().catch(() => {});
+    scheduleFollowUp();
     return { start, mode, walletMode:activeMode(s) };
   },
 
@@ -2738,7 +2882,7 @@ chrome.runtime.onMessage.addListener((msg, _sender, sendResponse) => {
   }
   if (msg.type === 'proveFailed') {
     getSend(msg.sendId).then(async (rec) => {
-      if (!rec || ['done', 'failed'].includes(rec.status)) return;
+      if (!rec || ['done', 'failed', 'cancelled'].includes(rec.status)) return;
       await failSend(rec, `Proving failed: ${msg.error}. Try fewer proving workers in Settings > Advanced, or a payment that uses fewer coins.`);
     });
     return false;

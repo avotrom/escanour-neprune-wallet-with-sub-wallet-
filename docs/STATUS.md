@@ -1,8 +1,8 @@
-> **0.23.3 prototype:** See [../RELEASE-0.23.3.md](../RELEASE-0.23.3.md) for current validation and [SUB-WALLETS.md](SUB-WALLETS.md) for the three sub-wallets, address history and encrypted receipt recovery. The remaining table also describes features inherited from the earlier wallet source.
+> **0.23.4 prototype:** See [../RELEASE-0.23.4.md](../RELEASE-0.23.4.md) for current validation and [SUB-WALLETS.md](SUB-WALLETS.md) for the three sub-wallets, address history and encrypted receipt recovery. The remaining table also describes features inherited from the earlier wallet source.
 
 # Status
 
-**Experimental source prototype.** Native core tests, JavaScript checks and native/WASM compilation have passed locally. Fresh release WASM binaries and live-node acceptance have not been established. See [../RELEASE-0.23.3.md](../RELEASE-0.23.3.md) for exact validation results and limitations.
+**Experimental source prototype.** Native core tests, JavaScript checks and native/WASM compilation have passed locally. Fresh release WASM binaries and live-node acceptance have not been established. See [../RELEASE-0.23.4.md](../RELEASE-0.23.4.md) for exact validation results and limitations.
 
 ## Deployment validation checklist
 
@@ -100,4 +100,8 @@ Security pass: [SECURITY-REVIEW-0.23.2.md](SECURITY-REVIEW-0.23.2.md). Uncertain
 
 Per-sub-wallet recovery methods persist independently. Indexed asset recovery scopes flags and coin proofs to the selected sub-wallet; stale other-wallet snapshots fall back to local scanning. The shared chain/node connection is retained.
 
-Current payment-code, archive and refresh fixes: [BUG-REVIEW-0.23.3.md](BUG-REVIEW-0.23.3.md).
+Current payment-code, archive and refresh fixes: [BUG-REVIEW-0.23.4.md](BUG-REVIEW-0.23.4.md).
+
+Refresh follow-up: Available refresh is bounded and acknowledges background work. Advanced has optional fresh-block timing, off by default. Recovery supports scoped progress, stop/resume and method switching. See [BUG-REVIEW-0.23.4.md](BUG-REVIEW-0.23.4.md). The current patch changes JavaScript/UI only; Rust results above refer to the prior unchanged core.
+
+Servers has optional A/B random session selection and bounded read fallback. Both hosts are included in Tor routing, Own node disables fallback, and broadcasts retain pre-upload uncertainty handling.

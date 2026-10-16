@@ -3,6 +3,7 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import vm from 'node:vm';
 import * as model from '../extension/lib/watch-model.js';
+import { normalizeServer } from '../extension/lib/rpc.js';
 import * as walletModes from '../extension/lib/wallet-modes.js';
 import * as privateModel from '../extension/lib/private-notifications.js';
 import { encryptRecoveryFile } from '../extension/lib/recovery-file.js';
@@ -26,7 +27,7 @@ async function harness() {
     claimRemove(bytes,record){const st=decode(bytes);return encode({...st,expected:st.expected.filter(c=>c.addition_record!==record)});}
     viewingKeys(bytes,profile){return {profile,index:decode(bytes).receiveIndex||0};}
     mergeRecoveredProfile(oldBytes,newBytes,profile){const old=decode(oldBytes),next=decode(newBytes);return encode({...next,coins:[...(next.coins||[]),...(old.coins||[]).filter(c=>c.profile!==profile)]});}
-    carryOver(oldBytes,newBytes){const old=decode(oldBytes),next=decode(newBytes);return encode({...next,watch:old.watch,expected:old.expected||[]});}
+    carryOver(oldBytes,newBytes){const old=decode(oldBytes),next=decode(newBytes);const expected=[...(next.expected||[])];for(const e of old.expected||[])if(!(next.coins||[]).some(c=>(c.addition_record||c.id)===(e.addition_record||e.id))&&!expected.some(c=>(c.addition_record||c.id)===(e.addition_record||e.id)))expected.push(e);return encode({...next,watch:old.watch,expected});}
     rescanState(oldBytes,newBytes){const old=decode(oldBytes),next=decode(this.carryOver(oldBytes,newBytes));return encode({...next,expected:[...next.expected,...(old.coins||[])]});}
     profileReceiveAddress(bytes,profile,kind){const st=decode(bytes);const index=profile==='refresh'?st.receiveIndex||0:0;return {index,profile,kind,address:profile==='encrypted'?`nescan:${kind}:${index}`:`${profile}:${kind}:${index}`};}
     profileAddressAt(profile,kind,index){return `${profile}:${kind}:${index}`;}
@@ -45,11 +46,12 @@ async function harness() {
   }
   const light={maxBlocksPerCall:()=>2,getBlocksRequest:(id,from,to)=>JSON.stringify({from,to}),LightWallet:Wallet,addressInfo:(a)=>({valid:/^(nolga|nech)/.test(a),kind:a.startsWith('nech')?'ec-hybrid':'generation'})};
   const settings={network:'main',createdWallets:{standard:true,refresh:false,encrypted:false},servers:Object.fromEntries(['main','testnet','testnet-mock'].map(n=>[n,{sync:'https://example.invalid/',broadcast:'https://example.invalid/'}])),exactPrivacy:false};
-  const settingsStore={NETWORKS:['main','testnet','testnet-mock'],load:async()=>settings,save:async patch=>Object.assign(settings,patch),serversFor:(s,n=s.network)=>s.servers[n]};
+  const settingsStore={NETWORKS:['main','testnet','testnet-mock'],load:async()=>settings,save:async patch=>Object.assign(settings,patch,patch.recoveryModes?{recoveryModes:{...settings.recoveryModes,...patch.recoveryModes}}:{}),serversFor:(s,n=s.network)=>s.servers[n]};
   const session={};const listener={addListener:()=>{}};
   const chrome={runtime:{sendMessage:async()=>{},getURL:x=>x,getContexts:async()=>[],getPlatformInfo:async()=>{},onMessage:listener,onInstalled:listener,onStartup:listener},notifications:{onClicked:listener},storage:{session:{clear:async()=>{for(const k of Object.keys(session))delete session[k];},get:async k=>({[k]:session[k]}),set:async patch=>Object.assign(session,patch)}},alarms:{create:()=>{},onAlarm:listener},sidePanel:{setPanelBehavior:async()=>{}}};
-  const rpc={interrupt:()=>{},id:()=>1,post:async(url,body)=>body,normalizeServer:url=>new URL(url).origin+'/'};
-  const source=fs.readFileSync(new URL('../extension/background.js',import.meta.url),'utf8').replace(/^import .*;\n/gm,'')+'\nglobalThis.api = {commands, latestSnapshot, saveSnapshot, dropWallet, setStatus, status, requireWallet, watchCatchUp, watchFastStep, saveSend, getSend, recordBlockEvents, readActivity, runFastRestore, configureRecoveryNode, setTorState, handleSubmitted, resumeSends, expireOldSends, exclusive, plus};';
+  const rpc={interrupt:()=>{},id:()=>1,post:async(url,body)=>body,normalizeServer};
+  rpc.read=(...args)=>rpc.post(...args);rpc.nodeSession=async(s,network=s.network)=>({url:s.servers[network]?.sync||'',label:'A',enabled:false});rpc.resetNodeSession=async()=>{};
+  const source=fs.readFileSync(new URL('../extension/background.js',import.meta.url),'utf8').replace(/^import .*;\n/gm,'')+'\nglobalThis.api = {commands, latestSnapshot, saveSnapshot, dropWallet, setStatus, status, requireWallet, watchCatchUp, watchFastStep, saveSend, getSend, recordBlockEvents, readActivity, runFastRestore, configureRecoveryNode, setTorState, handleSubmitted, resumeSends, expireOldSends, exclusive, plus, runSend, performSync, recoveryStatuses};';
   const context=vm.createContext({chrome,db,vault,light,rpc,settingsStore,...model,...privateModel,...walletModes,encryptRecoveryFile,initLight:async()=>{},t:x=>x,setLanguage:()=>{},TextEncoder,TextDecoder,Uint8Array,ArrayBuffer,crypto,URL,AbortController,AbortSignal,Date,console,setTimeout:(fn,ms)=>{if(ms===0)queueMicrotask(fn);return 1;},clearTimeout:()=>{},setInterval:()=>1,clearInterval:()=>{}});
   new vm.Script(source).runInContext(context);
   const initial=encode({height:100,watch:[]});await context.api.saveSnapshot(key,100,initial,'main');
@@ -176,6 +178,22 @@ test('paired contact updates preserve both address kinds and reject duplicates',
 test('concurrent status writes preserve both wallet and watch progress',async()=>{
   const h=await harness();await Promise.all([h.api.setStatus({height:123}),h.api.setStatus({watchBehind:{at:45,end:123}})]);
   const s=await h.api.status();assert.equal(s.height,123);assert.equal(s.watchBehind.at,45);
+});
+
+test('refresh acknowledges without waiting for the wallet lock or duplicating a queued scanner',async()=>{
+ const h=await harness();let release,entered;const started=new Promise(r=>{entered=r;});
+ const held=h.api.exclusive(async()=>{entered();await new Promise(r=>{release=r;});});await started;
+ let requests=0;h.rpc.post=async()=>{requests++;throw Error('node offline');};
+ const a=await h.api.commands.requestSync({networkContext:'main'}),b=await h.api.commands.requestSync({networkContext:'main'});
+ assert.equal(a.queued,true);assert.equal(b.network,'main');assert.equal(requests,0);
+ release();await held;await h.api.commands.sync().catch(()=>{});assert.equal(requests,1);
+ assert.equal((await h.api.status()).checking,false);assert.match((await h.api.status()).error,/node offline/);
+});
+test('refresh rejects a stale network or locked wallet before requesting a scan',async()=>{
+ const h=await harness();let requests=0;h.rpc.post=async()=>{requests++;return '';};
+ await assert.rejects(h.api.commands.requestSync({networkContext:'testnet'}),/network changed/);
+ h.vault.sessionKey=async()=>null;
+ await assert.rejects(h.api.commands.requestSync({networkContext:'main'}),/locked/);assert.equal(requests,0);
 });
 
 test('an interrupted watch scan keeps the last committed block checkpoint',async()=>{
@@ -510,4 +528,126 @@ test('manual block scans preserve saved recovery choices and reject stale networ
 test('premine search is limited to Standard and notification arithmetic keeps sub-pico NPT',async()=>{
   const h=await harness();h.settings.createdWallets.refresh=true;h.settings.autoRefresh=true;h.settings.activeMode='refresh';await assert.rejects(h.api.commands.findPremine({}),/Standard/);
   assert.equal(h.api.plus('1.0000000000001','0.0000000000002'),'1.0000000000003');
+});
+
+
+test('fresh-block waiting follows the Advanced preference and defaults off even if a caller forces it on',async()=>{
+ for(const enabled of [false,true]) {
+  const h=await harness();h.settings.waitForFreshBlock=enabled;
+  h.rpc.post=async()=>{throw Error('test node');};
+  const id=await h.api.commands.send({to:'nolga1mock',amount:'1',fee:'0.1',waitForFreshBlock:!enabled});
+  assert.equal((await h.api.getSend(id)).waitForFreshBlock,enabled);
+ }
+ const h=await harness();await h.api.commands.saveSettings({waitForFreshBlock:true});assert.equal(h.settings.sendTimingConfigured,true);
+ await assert.rejects(h.api.commands.send({to:'nolga1mock',amount:'1',fee:'0.1',networkContext:'testnet'}),/Network changed/);
+});
+test('sending checks the wallet tip without waiting for archive or spend-index maintenance',async()=>{
+ const h=await harness();h.settings.exactPrivacy=true;h.settings.localArchive=true;
+ await h.api.setStatus({height:100,tip:100,serverOk:true});
+ const rpcCalls=[],stages=[];h.chrome.runtime.sendMessage=async msg=>{if(msg.type==='send')stages.push(msg.send.status);};
+ h.rpc.post=async(url,body)=>{rpcCalls.push(JSON.parse(body));return JSON.stringify({result:{height:100}});};
+ let built=false;h.light.LightWallet.prototype.prepareSend=()=>{built=true;throw Error('fixture: preparation reached');};
+ await h.api.saveSend({id:'build',status:'waiting-block',walletMode:'standard',network:'main',createdAt:Date.now(),attempt:1,waitForFreshBlock:true});
+ await h.api.runSend('build');assert.equal(built,true);assert.equal(rpcCalls.length,1);assert.equal(rpcCalls[0].method,'chain_height');assert(stages.includes('checking'));assert(stages.includes('preparing'));assert.equal((await h.api.getSend('build')).waitForFreshBlock,false);
+});
+test('a send cancelled during its tip check never builds or uploads a transaction',async()=>{
+ const h=await harness();let reply,entered;const begun=new Promise(r=>{entered=r;});
+ h.rpc.post=async()=>{entered();return new Promise(r=>{reply=r;});};let built=false;
+ h.light.LightWallet.prototype.prepareSend=()=>{built=true;throw Error('must not build');};
+ await h.api.saveSend({id:'cancel-check',status:'starting',walletMode:'standard',network:'main',createdAt:Date.now(),attempt:1,waitForFreshBlock:false});
+ const running=h.api.runSend('cancel-check');await begun;await h.api.commands.cancelSend({id:'cancel-check'});reply(JSON.stringify({result:{height:100}}));await running;
+ assert.equal(built,false);assert.equal((await h.api.getSend('cancel-check')).status,'cancelled');
+});
+test('send controls cannot dismiss, cancel or approve another sub-wallet payment',async()=>{
+ const h=await harness();await h.api.saveSend({id:'other',status:'needs-lustration',network:'main',walletMode:'refresh'});
+ for(const cmd of ['dismissSend','cancelSend','acceptLustrationAndRetry'])await assert.rejects(h.api.commands[cmd]({id:'other'}),/sub-wallet/);
+ assert.equal((await h.api.getSend('other')).status,'needs-lustration');
+});
+test('recovery can pause at its saved checkpoint, remain paused on alarms and resume',async()=>{
+ const h=await harness();await h.api.setStatus({height:100,tip:120,recoveryMode:'private',recoveryWallet:'standard',syncing:true});
+ const paused=await h.api.commands.pauseRecovery({walletMode:'standard',networkContext:'main'});assert.equal(paused.status.scanPaused,true);assert.equal(paused.status.height,100);
+ let requests=0;h.rpc.post=async()=>{requests++;throw Error('offline');};await h.api.commands.sync();assert.equal(requests,0);
+ await assert.rejects(h.api.commands.requestSync({networkContext:'main'}),/paused/);
+ const resumed=await h.api.commands.resumeRecovery({walletMode:'standard',networkContext:'main'});assert.equal(resumed.status.scanPaused,false);assert.equal((await h.api.latestSnapshot(h.key)).height,100);
+});
+test('separate recovery methods and progress survive switching jobs and reject foreign cancellation',async()=>{
+ const h=await harness();h.settings.createdWallets.refresh=true;h.settings.autoRefresh=true;
+ await h.api.setStatus({height:30,tip:100,recoveryMode:'private',recoveryWallet:'standard',syncing:true});
+ await h.api.commands.selectMode({mode:'refresh'});
+ await assert.rejects(h.api.commands.pauseRecovery({walletMode:'refresh',networkContext:'main'}),/recovery changed/);
+ await h.api.commands.rescan({mode:'fast',birthday:0,walletMode:'refresh',networkContext:'main'});
+ const jobs=await h.api.recoveryStatuses();assert.equal(jobs.standard.recoveryMode,'private');assert.equal(jobs.standard.scanPaused,true);assert.equal(jobs.refresh.recoveryMode,'fast');assert.equal(jobs.refresh.scanPaused,false);
+ assert.equal(h.settings.recoveryModes.refresh,'fast');
+});
+test('switching from a rewound Private scan to Fast seeds the encrypted pre-scan checkpoint',async()=>{
+ const h=await harness(),encode=o=>new TextEncoder().encode(JSON.stringify(o)),decode=b=>JSON.parse(new TextDecoder().decode(b));
+ await h.api.saveSnapshot(h.key,100,encode({height:100,watch:[],coins:[{id:'retained',profile:'standard'}]}));
+ await h.api.commands.rescan({mode:'private',birthday:0,walletMode:'standard',networkContext:'main'});
+ assert.equal((await h.api.latestSnapshot(h.key)).height,0);const base=h.maps.kv.get('recoveryBase:main');assert(base.box);assert.equal(base.coins,undefined);
+ await h.api.commands.rescan({mode:'fast',birthday:0,walletMode:'standard',networkContext:'main'});
+ const seeds=[];h.light.FastRestore=class {
+  static forProfile(){return new this();}seedState(bytes){seeds.push(decode(bytes));}flagsRequest(){return undefined;}restoreChunks(){return 0;}snapshotHeight(){return 100;}
+  finish(){return {height:100,state:encode({height:100,watch:[],coins:[{id:'retained',profile:'standard'}]}),events:[]};}free(){}
+ };
+ const {wallet}=await h.api.requireWallet();const result=await h.api.runFastRestore({key:h.key,wallet,s:h.settings,server:'https://example.invalid/',st:await h.api.status(),snap:await h.api.latestSnapshot(h.key)});
+ assert.equal(result.height,100);assert(seeds.some(st=>st.coins?.some(c=>c.id==='retained')));assert.equal((await h.api.status()).fastFailed,null);
+});
+
+test('Fast advances other sub-wallet proofs locally from the retained checkpoint',async()=>{
+ const h=await harness(),encode=o=>new TextEncoder().encode(JSON.stringify(o)),decode=b=>JSON.parse(new TextDecoder().decode(b));
+ const baseState=encode({height:100,watch:[],coins:[{id:'standard-coin',profile:'standard'},{id:'refresh-coin',profile:'refresh'}]});
+ await h.api.saveSnapshot(h.key,100,baseState);await h.api.commands.rescan({mode:'private',birthday:0,walletMode:'standard',networkContext:'main'});
+ h.light.FastRestore=class {static forProfile(){return new this();}seedState(){}flagsRequest(){return undefined;}restoreChunks(){return 0;}snapshotHeight(){return 101;}finish(){return {height:101,state:encode({height:101,watch:[],coins:[{id:'standard-coin',profile:'standard'}]}),events:[]};}free(){}};
+ let tail=0;h.light.LightWallet.prototype.applyBlocksWatching=(bytes,body)=>{tail++;const st=decode(bytes),range=JSON.parse(body);return {state:encode({...st,height:range.to}),result:{height:range.to,applied:range.to-range.from+1,reorg:false,events:[]}};};
+ const {wallet}=await h.api.requireWallet();const out=await h.api.runFastRestore({key:h.key,wallet,s:h.settings,server:'https://example.invalid/',st:{fastPending:'fast',recoveryWallet:'standard',recoveryStart:0},snap:await h.api.latestSnapshot(h.key)});
+ assert.equal(out.height,101);assert.equal(tail,1);assert.deepEqual(decode(out.state).coins.map(c=>c.id),['standard-coin','refresh-coin']);assert.equal((await h.api.status()).fastFailed,null);
+});
+test('replacing an interrupted scan cannot inherit its late error or remain attached to its old run',async()=>{
+ const h=await harness();let rejectRequest,entered;const started=new Promise(r=>{entered=r;});
+ h.rpc.post=async()=>{entered();return new Promise((_,reject)=>{rejectRequest=reject;});};
+ h.rpc.interrupt=()=>rejectRequest?.(Error('SCAN_INTERRUPTED'));
+ const scan=h.api.commands.sync();await started;
+ await h.api.commands.rescan({mode:'fast',birthday:0,walletMode:'standard',networkContext:'main'});await scan;
+ const st=await h.api.status();assert.equal(st.recoveryMode,'fast');assert.equal(st.fastPending,'fast');assert.equal(st.error,null);assert.equal(st.scanPaused,false);
+});
+
+test('choosing a recovery method saves only the chosen sub-wallet preference without starting a scan',async()=>{
+ const h=await harness();h.settings.recoveryModes={standard:'fast',refresh:'private',encrypted:'private'};
+ let calls=0;h.rpc.post=async()=>{calls++;throw Error('must not scan');};
+ await h.api.commands.setRecoveryMode({walletMode:'standard',networkContext:'main',mode:'node'});
+ assert.equal(h.settings.recoveryModes.standard,'node');assert.equal(h.settings.recoveryModes.refresh,'private');assert.equal(calls,0);
+ await assert.rejects(h.api.commands.setRecoveryMode({walletMode:'refresh',networkContext:'main',mode:'fast'}),/wallet changed/);
+});
+
+test('node-pool settings require two valid distinct nodes and Own node clears public fallback',async()=>{
+ const h=await harness();
+ await assert.rejects(h.api.commands.saveSettings({servers:{main:{sync:'https://a.invalid',fallback:'https://a.invalid/',randomFallback:true}}}),/two different/);
+ await assert.rejects(h.api.commands.saveSettings({servers:{main:{sync:'https://a.invalid/',fallback:'http://remote.invalid/',randomFallback:true}}}),/https/);
+ await h.api.commands.saveSettings({servers:{main:{sync:'https://a.invalid/',fallback:'https://b.invalid/',randomFallback:true}}});
+ assert.equal(h.settings.servers.main.fallback,'https://b.invalid/');assert.equal(h.settings.servers.main.randomFallback,true);
+ await h.api.configureRecoveryNode(h.settings,'main','http://127.0.0.1:9797/');assert.equal(h.settings.servers.main.randomFallback,false);assert.equal(h.settings.servers.main.fallback,'');
+});
+test('default broadcasts use the session node, while an explicit separate broadcaster stays selected',async()=>{
+ const h=await harness();h.settings.servers.main={sync:'https://a.invalid/',broadcast:'https://a.invalid/',fallback:'https://b.invalid/',randomFallback:true};
+ h.rpc.nodeSession=async()=>({url:'https://b.invalid/',enabled:true,nodes:['https://a.invalid/','https://b.invalid/'],label:'B'});
+ assert.equal(await h.api.commands.broadcastNode({networkContext:'main'}),'https://b.invalid/');
+ h.settings.servers.main.broadcast='https://c.invalid/';assert.equal(await h.api.commands.broadcastNode({networkContext:'main'}),'https://c.invalid/');
+ await assert.rejects(h.api.commands.broadcastNode({networkContext:'unknown'}),/Unknown network/);
+});
+test('privacy reporting accounts for every configured fallback operator',async()=>{
+ const h=await harness();h.light.privacyReport=()=>({coins:[]});
+ h.settings.servers.main={sync:'https://a.invalid/',broadcast:'https://b.invalid/',fallback:'https://b.invalid/',randomFallback:true};
+ h.rpc.nodeSession=async()=>({url:'https://a.invalid/',enabled:true,nodes:['https://a.invalid/','https://b.invalid/'],label:'A'});
+ h.maps.kv.set('fastRestored:main',{mode:'fast',server:'http://127.0.0.1:9797/',servers:['https://a.invalid/','http://127.0.0.1:9797/']});
+ const report=await h.api.commands.privacy();assert.equal(report.sameServer,true);assert.equal(report.ownNode,false);assert.equal(report.fastRestored.own,false);
+});
+
+test('new fallback hosts are blocked until Tor routes have been installed',async()=>{
+ const h=await harness();h.settings.tor=true;await h.api.setTorState({state:'on',required:true});let pac='',blocked=false;
+ h.rpc.resetNodeSession=async()=>{blocked=(await h.api.commands.torStatus()).state==='connecting';};
+ h.chrome.proxy={settings:{get:async()=>({levelOfControl:'controlled_by_this_extension'}),set:async config=>{pac=config.value.pacScript.data;}}};
+ await h.api.commands.saveSettings({servers:{main:{sync:'https://a.invalid/',fallback:'https://b.invalid/',randomFallback:true}}});
+ assert.equal(blocked,true);assert.match(pac,/a\.invalid/);assert.match(pac,/b\.invalid/);
+ // The harness has no Tor checker, so it must stay fail-closed after installation.
+ assert.notEqual((await h.api.commands.torStatus()).state,'on');
 });
