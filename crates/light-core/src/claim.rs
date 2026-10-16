@@ -50,6 +50,8 @@ use crate::sync::{Decoded, decode, msa_after};
 
 /// Generation key indices neptune-core checks for premine allocations.
 pub const PREMINE_KEYS: u64 = 10;
+/// Browser import bound; ample for ordinary native-currency notifications.
+pub const MAX_NOTIFICATION_BYTES: usize = 64 * 1024;
 
 /// What a notification turned out to be.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
@@ -108,11 +110,20 @@ pub fn claim_view(state: &WalletState, e: &ExpectedUtxo) -> ClaimView {
 
 /// Decrypt and check an off-chain notification (`utxo...` text).
 pub fn decode_notification(text: &str, keys: &Keys, state: &WalletState) -> Result<ExpectedUtxo> {
-    let candidates = keys.scan_keys(
+    ensure!(
+        text.len() <= MAX_NOTIFICATION_BYTES,
+        "payment code exceeds the 64 KiB limit"
+    );
+    let mut candidates = keys.scan_keys(
         state.next_generation_index.max(PREMINE_KEYS),
         state.next_symmetric_index,
         state.next_ec_hybrid_index,
     );
+    for candidate in keys.profile_scan_keys(state) {
+        if !candidates.iter().any(|(r, _)| *r == candidate.0) {
+            candidates.push(candidate);
+        }
+    }
     decode_notification_with_candidates(text, keys, state, candidates)
 }
 
@@ -131,8 +142,12 @@ fn decode_notification_with_candidates(
     state: &WalletState,
     candidates: Vec<(KeyRef, SpendingKey)>,
 ) -> Result<ExpectedUtxo> {
-    let text = text.trim().to_ascii_lowercase();
-    let notification = EncryptedUtxoNotification::from_bech32m(&text, keys.network())
+    ensure!(
+        text.len() <= MAX_NOTIFICATION_BYTES,
+        "payment code exceeds the 64 KiB limit"
+    );
+    // Keep original case so bech32 can reject mixed-case/corrupted codes.
+    let notification = EncryptedUtxoNotification::from_bech32m(text.trim(), keys.network())
         .map_err(|e| anyhow!("not a payment notification for this network: {e}"))?;
 
     // The receiver identifier names the key; scan the same keys sync scans.
@@ -187,6 +202,31 @@ pub fn register(state: &mut WalletState, e: ExpectedUtxo) -> ClaimStatus {
         state.expected.push(e);
     }
     status
+}
+
+/// Preserve known receipts while rebuilding from an earlier block. In
+/// particular an off-chain notification may never appear in announcements.
+pub fn carry_known_receipts(old: &WalletState, new: &mut WalletState) {
+    for u in &old.utxos {
+        let incoming = IncomingUtxo {
+            utxo: u.utxo.clone(),
+            sender_randomness: u.sender_randomness,
+            receiver_preimage: u.receiver_preimage,
+            is_guesser_fee: false,
+        };
+        register(
+            new,
+            ExpectedUtxo {
+                addition_record: incoming.addition_record(),
+                utxo: u.utxo.clone(),
+                sender_randomness: u.sender_randomness,
+                receiver_preimage: u.receiver_preimage,
+                key: u.key,
+                source: ExpectedSource::Notification,
+                registered_at: new.height,
+            },
+        );
+    }
 }
 
 /// Forget a waiting coin by its addition record (hex). Returns whether one
@@ -375,6 +415,7 @@ pub fn genesis_state(keys: &Keys) -> Result<WalletState> {
 /// A registered coin the archive found on chain.
 #[derive(Debug, Clone, Serialize)]
 pub struct Adopted {
+    pub wallet_mode: String,
     pub aocl_index: u64,
     pub height: u64,
     pub amount: String,
@@ -429,6 +470,7 @@ pub fn adopt_from_archive(
             AbsoluteIndexSet::compute(item, e.sender_randomness, e.receiver_preimage, aocl_index);
         if archive.was_spent(&set) {
             adopted.push(Adopted {
+                wallet_mode: crate::profiles::profile_of(e.key).name().into(),
                 aocl_index,
                 height,
                 amount: e.utxo.get_native_currency_amount().display_lossless(),
@@ -529,6 +571,7 @@ pub fn adopt_from_archive(
         let kind = key_kind(f.e.key);
         if f.spent_at.is_some() {
             adopted.push(Adopted {
+                wallet_mode: crate::profiles::profile_of(f.e.key).name().into(),
                 aocl_index: f.aocl_index,
                 height: f.height,
                 amount,
@@ -541,9 +584,7 @@ pub fn adopt_from_archive(
             state.msa.verify(f.item, &f.proof),
             "a restored proof does not verify for the wallet"
         );
-        if let KeyRef::Generation(i) = f.e.key {
-            state.next_generation_index = state.next_generation_index.max(i + 1);
-        }
+        crate::sync::bump_indices(state, f.e.key);
         state.utxos.push(OwnedUtxo {
             utxo: f.e.utxo,
             sender_randomness: f.e.sender_randomness,
@@ -556,6 +597,7 @@ pub fn adopt_from_archive(
             reserved_by: None,
         });
         adopted.push(Adopted {
+            wallet_mode: crate::profiles::profile_of(f.e.key).name().into(),
             aocl_index: f.aocl_index,
             height: f.height,
             amount,
@@ -640,6 +682,15 @@ mod tests {
                 Network::Main,
             );
 
+            assert_eq!(
+                decode_notification(&text.to_ascii_uppercase(), &k, &st)
+                    .unwrap()
+                    .key,
+                key_ref
+            );
+            let mut mixed = text.clone();
+            mixed.replace_range(..1, "U");
+            assert!(decode_notification(&mixed, &k, &st).is_err());
             let e = decode_notification(&text, &k, &st).unwrap();
             assert_eq!(e.key, key_ref);
             assert_eq!(Tip5::hash(&e.utxo), Tip5::hash(&utxo));
@@ -665,6 +716,18 @@ mod tests {
             ));
         }
         assert!(st.expected.is_empty());
+    }
+
+    #[test]
+    fn oversized_notification_is_rejected_before_parsing() {
+        let k = keys(12);
+        let st = genesis_state(&k).unwrap();
+        assert!(
+            decode_notification(&"x".repeat(MAX_NOTIFICATION_BYTES + 1), &k, &st)
+                .unwrap_err()
+                .to_string()
+                .contains("64 KiB")
+        );
     }
 
     fn keys_on(seed: u8, network: Network) -> Keys {

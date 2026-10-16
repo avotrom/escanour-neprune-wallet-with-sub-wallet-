@@ -543,12 +543,67 @@ impl LightWallet {
         new.to_bytes().map_err(js_err)
     }
 
+    #[wasm_bindgen(js_name = rescanState)]
+    pub fn rescan_state(&self, old_state: &[u8], new_state: &[u8]) -> Result<Vec<u8>, JsError> {
+        let old = WalletState::from_bytes(old_state).map_err(js_err)?;
+        let mut new =
+            WalletState::from_bytes(&self.carry_over(old_state, new_state)?).map_err(js_err)?;
+        claim::carry_known_receipts(&old, &mut new);
+        new.to_bytes().map_err(js_err)
+    }
+
+    #[wasm_bindgen(js_name = mergeRecoveredProfile)]
+    pub fn merge_recovered_profile(
+        &self,
+        old_state: &[u8],
+        recovered: &[u8],
+        profile: &str,
+    ) -> Result<Vec<u8>, JsError> {
+        let old = WalletState::from_bytes(old_state).map_err(js_err)?;
+        let mut recovered = WalletState::from_bytes(recovered).map_err(js_err)?;
+        let profile = light_core::profiles::Profile::parse(profile).map_err(js_err)?;
+        light_core::profiles::merge_recovered(&old, &mut recovered, profile).map_err(js_err)?;
+        recovered.to_bytes().map_err(js_err)
+    }
+
     /// Viewing keys of this wallet's two addresses (index 0), to follow them
     /// from another device. `spend_key` (the receiver preimage, hex) lets the
     /// other side also see spends: `{ generation: { viewing_key, spend_key },
     /// ec_hybrid: { ... } }`.
     #[wasm_bindgen(js_name = viewingKeys)]
-    pub fn viewing_keys(&self) -> Result<JsValue, JsError> {
+    pub fn viewing_keys(
+        &self,
+        state: Option<Vec<u8>>,
+        profile: Option<String>,
+    ) -> Result<JsValue, JsError> {
+        let profile =
+            light_core::profiles::Profile::parse(profile.as_deref().unwrap_or("standard"))
+                .map_err(js_err)?;
+        if profile == light_core::profiles::Profile::Encrypted {
+            return Err(JsError::new(
+                "Encrypted receipt viewing-key export is not supported. Ordinary viewing keys cannot follow encrypted envelopes.",
+            ));
+        }
+        let state = state
+            .as_deref()
+            .map(WalletState::from_bytes)
+            .transpose()
+            .map_err(js_err)?;
+        if profile == light_core::profiles::Profile::Refresh && state.is_none() {
+            return Err(JsError::new(
+                "Wallet state is required to export the current Auto-refresh addresses.",
+            ));
+        }
+        let key = |kind| {
+            light_core::profiles::key_for(
+                profile,
+                kind,
+                state.as_ref().map_or(0, |st| {
+                    light_core::profiles::receive_index(st, profile, kind)
+                }),
+            )
+            .map_err(js_err)
+        };
         #[derive(Serialize)]
         struct One {
             viewing_key: String,
@@ -569,8 +624,8 @@ impl LightWallet {
             })
         };
         to_js(&Both {
-            generation: one(KeyRef::Generation(0))?,
-            ec_hybrid: one(KeyRef::EcHybrid(0))?,
+            generation: one(key(AddressKind::Generation)?)?,
+            ec_hybrid: one(key(AddressKind::EcHybrid)?)?,
         })
     }
 
@@ -751,18 +806,46 @@ impl LightWallet {
 
     /// Read a payment notification (`utxo...`) without registering it.
     #[wasm_bindgen(js_name = claimDecode)]
-    pub fn claim_decode(&self, state: &[u8], text: &str) -> Result<JsValue, JsError> {
+    pub fn claim_decode(
+        &self,
+        state: &[u8],
+        text: &str,
+        profile: Option<String>,
+    ) -> Result<JsValue, JsError> {
         let st = WalletState::from_bytes(state).map_err(js_err)?;
         let e = claim::decode_notification(text, &self.keys, &st).map_err(js_err)?;
+        if let Some(profile) = profile {
+            if light_core::profiles::profile_of(e.key)
+                != light_core::profiles::Profile::parse(&profile).map_err(js_err)?
+            {
+                return Err(JsError::new(
+                    "This payment belongs to another sub-wallet. Open that sub-wallet to recover it.",
+                ));
+            }
+        }
         to_js(&claim::claim_view(&st, &e))
     }
 
     /// Register a payment notification. Returns `{ state, claim }`; the
     /// claim's `status` is what it was before (`new`, `waiting`, `owned`).
     #[wasm_bindgen(js_name = claimRegister)]
-    pub fn claim_register(&self, state: &[u8], text: &str) -> Result<JsValue, JsError> {
+    pub fn claim_register(
+        &self,
+        state: &[u8],
+        text: &str,
+        profile: Option<String>,
+    ) -> Result<JsValue, JsError> {
         let mut st = WalletState::from_bytes(state).map_err(js_err)?;
         let e = claim::decode_notification(text, &self.keys, &st).map_err(js_err)?;
+        if let Some(profile) = profile {
+            if light_core::profiles::profile_of(e.key)
+                != light_core::profiles::Profile::parse(&profile).map_err(js_err)?
+            {
+                return Err(JsError::new(
+                    "This payment belongs to another sub-wallet. Open that sub-wallet to recover it.",
+                ));
+            }
+        }
         let view = claim::claim_view(&st, &e);
         claim::register(&mut st, e);
         state_and(&st, "claim", &to_js(&view)?)
@@ -1040,6 +1123,22 @@ impl FastRestoreJs {
         FastRestoreJs {
             inner: light_core::fast::FastRestore::new(),
         }
+    }
+
+    #[wasm_bindgen(js_name = forProfile)]
+    pub fn for_profile(profile: &str) -> Result<FastRestoreJs, JsError> {
+        Ok(FastRestoreJs {
+            inner: light_core::fast::FastRestore::for_profile(
+                light_core::profiles::Profile::parse(profile).map_err(js_err)?,
+            ),
+        })
+    }
+
+    #[wasm_bindgen(js_name = seedState)]
+    pub fn seed_state(&mut self, state: &[u8]) -> Result<(), JsError> {
+        self.inner
+            .seed_state(&WalletState::from_bytes(state).map_err(js_err)?);
+        Ok(())
     }
 
     /// The next heights-by-flags request, or `undefined` when done.

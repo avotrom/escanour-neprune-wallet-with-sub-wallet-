@@ -24,7 +24,7 @@ export async function assertRoute(url) {
   const host = new URL(url).hostname;
   if (['localhost', '127.0.0.1', '[::1]'].includes(host)) return;
   const { tor } = await chrome.storage.session.get('tor');
-  const required = tor ? tor.required : (await loadSettings()).tor;
+  const required = tor?.required === true || (await loadSettings()).tor === true;
   if (required && tor?.state !== 'on') throw new Error('Tor is not connected. Check Tor settings before retrying.');
 }
 
@@ -40,6 +40,9 @@ export async function post(url, body, { timeoutMs = 60_000, interruptible = fals
       body,
       signal: ctrl.signal,
       credentials: 'omit',
+      // A redirect could leave Tor's configured host list and expose RPC
+      // metadata to an unchosen host. Require the configured endpoint itself.
+      redirect: 'error',
       cache: 'no-store',
     });
     const text = await res.text();
@@ -49,7 +52,11 @@ export async function post(url, body, { timeoutMs = 60_000, interruptible = fals
     if (text.startsWith('{') && text.includes('"error"')) {
       try {
         const parsed = JSON.parse(text);
-        if (parsed.error) throw new Error(`node: ${JSON.stringify(parsed.error)}`);
+        if (parsed.error) {
+          const error = new Error(`node: ${JSON.stringify(parsed.error)}`);
+          error.nodeRejected = true;
+          throw error;
+        }
       } catch (e) {
         if (e.message.startsWith('node:')) throw e;
       }
@@ -63,6 +70,8 @@ export async function post(url, body, { timeoutMs = 60_000, interruptible = fals
 
 export function normalizeServer(url) {
   const u = new URL(url.trim());
+  if (!['http:','https:'].includes(u.protocol)) throw new Error('Use https:// (plain http is only allowed for localhost)');
+  if (u.username || u.password) throw new Error('Do not put credentials in the node URL.');
   if (u.protocol !== 'https:' && !['localhost', '127.0.0.1'].includes(u.hostname)) {
     throw new Error('Use https:// (plain http is only allowed for localhost)');
   }

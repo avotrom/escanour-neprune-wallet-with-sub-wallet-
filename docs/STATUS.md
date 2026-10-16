@@ -1,16 +1,16 @@
-> **0.23 prototype:** See [../RELEASE-0.23.md](../RELEASE-0.23.md) for current validation and [SUB-WALLETS.md](SUB-WALLETS.md) for the three sub-wallets, address history and encrypted receipt recovery. The remaining table also describes features inherited from the earlier wallet source.
+> **0.23.3 prototype:** See [../RELEASE-0.23.3.md](../RELEASE-0.23.3.md) for current validation and [SUB-WALLETS.md](SUB-WALLETS.md) for the three sub-wallets, address history and encrypted receipt recovery. The remaining table also describes features inherited from the earlier wallet source.
 
 # Status
 
-**Experimental source prototype.** Native core tests, JavaScript checks and native/WASM compilation have passed locally. Fresh release WASM binaries and live-node acceptance have not been established. See [../RELEASE-0.23.md](../RELEASE-0.23.md) for exact validation results and limitations.
+**Experimental source prototype.** Native core tests, JavaScript checks and native/WASM compilation have passed locally. Fresh release WASM binaries and live-node acceptance have not been established. See [../RELEASE-0.23.3.md](../RELEASE-0.23.3.md) for exact validation results and limitations.
 
 ## Deployment validation checklist
 
 1. [x] Pinned Neptune source and the existing WASM compatibility patch prepared.
 2. [x] Native compilation: light-core and CLI.
 3. [x] WASM compilation: light-wasm and prover-wasm.
-4. [x] Local native tests: 21 passed, one optional scanning benchmark run separately.
-5. [x] JavaScript checks: 29 tests passed; syntax and popup DOM bindings checked.
+4. [x] Local native tests: 24 passed, one optional scanning benchmark run separately.
+5. [x] JavaScript checks: 78 tests passed; syntax and popup DOM bindings checked.
 6. [ ] Fresh release WASM build and installed-extension validation.
 7. [ ] Unchanged-node admission, relay, mining, offline receive, spend and clean restore.
 8. [ ] Real proof generation/acceptance and browser performance measurements.
@@ -30,7 +30,7 @@
 | Low-memory proving (Automatic / On / Off) and per-proof report | written; not yet measured on real proofs |
 | Node mode (own node for sync, broadcast, fast restore, fast rescan) with capability check | written; tested against a simulated server |
 | Proving help from the server (proof collection without chunk data; lock-script-only on own node) | waiting for neptune-core endpoints |
-| Restore source: public or own node; full local block scan | full scanning is forced for seed restoration on every network to discover all sub-wallet branches; index code remains available internally |
+| Restore: Fast, Private scan or Own node | all three choices are offered for every sub-wallet; indexed recovery discovers ordinary branches and shared encrypted format flags, with full-scan fallback |
 | Address balances add up to Available (change counted for the paying address) | written |
 | Address names follow neptune-core: Generation, EC Hybrid | written |
 | Light idle mode: tip check without wasm or decryption, one home request, simple home screen without continuous animations | written, tested in the harness |
@@ -83,7 +83,7 @@
 | --- | --- | --- |
 | Mempool-unaware | Incoming payments show once mined | Optional mempool scan |
 | No guesser-fee scanning | Irrelevant unless you mine | Port `scan_for_guesser_fee_utxos` |
-| No second-server tip comparison | A malicious server can hide blocks or serve a minority fork | Ask two servers for the tip each sync |
+| No independent consensus authentication | Node-supplied blocks are checked for continuity and accumulator consistency, but their proofs/PoW and canonical-chain selection are not independently validated | Trusted validating node now; authenticated consensus/header design and adversarial tests before trustless claims |
 | Coin selection: largest-first, max 4 inputs | Many small coins may block a payment | Add a "consolidate" action |
 | Snapshot rollback depth is 30 batches | Deeper reorgs need a re-sync from birthday | Fine in practice |
 | No public Testnet server is preset | Testnet needs a server URL in Settings > Servers | Add one when a public one exists |
@@ -95,3 +95,9 @@ Unknown until step 5 is done. The removal-records-integrity proof is usually the
 1. Lower `MAX_INPUTS` in `send.rs`.
 2. Or build prover-wasm for memory64 (`wasm64`), which recent Chrome supports. Chrome caps a wasm64 memory at 16 GB.
 3. Or move proving to a local native companion through Chrome native messaging. The extension design does not change: jobs in, proofs out.
+
+Security pass: [SECURITY-REVIEW-0.23.2.md](SECURITY-REVIEW-0.23.2.md). Uncertain broadcasts retain exact prepared data/proofs, block new payments/rescans, and support resending the original. Unknown outcomes never expire automatically; stale or permanently rejected unknown transactions may need manual node investigation.
+
+Per-sub-wallet recovery methods persist independently. Indexed asset recovery scopes flags and coin proofs to the selected sub-wallet; stale other-wallet snapshots fall back to local scanning. The shared chain/node connection is retained.
+
+Current payment-code, archive and refresh fixes: [BUG-REVIEW-0.23.3.md](BUG-REVIEW-0.23.3.md).

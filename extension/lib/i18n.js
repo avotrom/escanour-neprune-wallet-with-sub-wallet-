@@ -2772,3 +2772,106 @@ Object.assign(STRINGS.ar, {
   "backup.seedHint": "تستعيد عبارة واحدة المحافظ الثلاث. الملف المشفّر اختياري ويحتوي على العبارة فقط، دون التسميات المحلية أو الرسائل المرسلة.",
   "private.recoveryHint": "اتركه فارغًا للفحص من البداية. يجب أن يكون البلوك المحدد عند أول دفعة في المحافظ الثلاث أو قبله. قد يؤدي البدء لاحقًا إلى فقدان رؤية أموال أقدم."
 });
+
+Object.assign(STRINGS.en, {
+  'assets.title':'Recover assets', 'assets.navHint':'Fast, Private scan or Own node',
+  'assets.progress':'Block {h} of {t}',
+  'assets.started':'Asset recovery started',
+  'assets.viewCurrent':'These keys follow the current receiving addresses only. Auto-refresh needs new viewing keys after an address changes.',
+  'assets.viewUnsupported':'Encrypted receipt viewing-key export is not supported yet. Ordinary viewing keys cannot follow encrypted envelopes.',
+  'assets.choose':'Choose how to find your assets.', 'assets.start':'Find my assets',
+  'assets.fastHint':'Uses the node’s index. The node learns which coins are yours.',
+  'assets.private':'Private scan', 'assets.privateHint':'Reads blocks locally. Takes longer; no address lookup is sent.',
+  'assets.node':'Own node', 'assets.nodeHint':'Uses your node’s index, with a full scan if unavailable.',
+  'assets.scope':'Finds assets in all three sub-wallets. Their balances remain separate.',
+  'assets.manual':'Payment codes and more options',
+  'assets.fallback':'The index could not complete recovery. Continuing with a private full scan.',
+  'rm.fastHint':'Uses the node’s index. The node learns which coins are yours.',
+  'rm.node':'Own node', 'rm.nodeHint':'Uses your node’s index, with a full scan if unavailable. Needs neptune-core with --utxo-index.',
+  'rm.private':'Private scan', 'rm.privateHint':'Reads blocks locally. Takes longer; no address lookup is sent.',
+  'private.restore':'Choose Fast, Private scan or Own node in Recover assets. Start before your first payment.',
+});
+Object.assign(STRINGS.fr, {
+  'assets.title':'Récupérer les actifs', 'assets.navHint':'Rapide, Scan privé ou Mon nœud',
+  'assets.progress':'Bloc {h} sur {t}',
+  'assets.started':'Récupération des actifs démarrée',
+  'assets.viewCurrent':'Ces clés suivent uniquement les adresses actuelles. Auto-refresh nécessite de nouvelles clés après un changement d’adresse.',
+  'assets.viewUnsupported':'L’export des clés de lecture des reçus chiffrés n’est pas encore disponible. Les clés ordinaires ne suivent pas les enveloppes chiffrées.',
+  'assets.choose':'Choisissez comment retrouver vos actifs.', 'assets.start':'Retrouver mes actifs',
+  'assets.fastHint':'Utilise l’index du nœud. Le nœud apprend quelles pièces vous appartiennent.',
+  'assets.private':'Scan privé', 'assets.privateHint':'Lit les blocs localement. Plus long ; aucune recherche d’adresse envoyée.',
+  'assets.node':'Mon nœud', 'assets.nodeHint':'Utilise l’index de votre nœud, ou un scan complet si indisponible.',
+  'assets.scope':'Retrouve les actifs des trois sous-portefeuilles. Leurs soldes restent séparés.',
+  'assets.manual':'Codes de paiement et autres options',
+  'assets.fallback':'L’index n’a pas pu terminer la récupération. Le scan privé complet continue.',
+  'rm.fastHint':'Utilise l’index du nœud. Le nœud apprend quelles pièces vous appartiennent.',
+  'rm.node':'Mon nœud', 'rm.nodeHint':'Utilise l’index de votre nœud, ou un scan complet si indisponible. Nécessite neptune-core avec --utxo-index.',
+  'rm.private':'Scan privé', 'rm.privateHint':'Lit les blocs localement. Plus long ; aucune recherche d’adresse envoyée.',
+  'private.restore':'Choisissez Rapide, Scan privé ou Mon nœud dans Récupérer les actifs. Commencez avant le premier paiement.',
+});
+Object.assign(STRINGS.ar, {
+  'assets.title':'استعادة الأصول', 'assets.navHint':'سريع أو فحص خاص أو عقدتي',
+  'assets.progress':'البلوك {h} من {t}',
+  'assets.started':'بدأت استعادة الأصول',
+  'assets.viewCurrent':'تتابع هذه المفاتيح عناوين الاستلام الحالية فقط. تحتاج المحفظة التلقائية إلى مفاتيح قراءة جديدة بعد تغيير العنوان.',
+  'assets.viewUnsupported':'تصدير مفتاح قراءة الإشعارات المشفّرة غير متوفر بعد. مفاتيح القراءة العادية لا تتابع الأغلفة المشفّرة.',
+  'assets.choose':'اختر طريقة العثور على أصولك.', 'assets.start':'العثور على أصولي',
+  'assets.fastHint':'يستخدم فهرس العقدة. تعرف العقدة العملات التي تملكها.',
+  'assets.private':'فحص خاص', 'assets.privateHint':'يقرأ البلوكات محليًا. يستغرق وقتًا أطول ولا يرسل بحثًا عن عناوينك.',
+  'assets.node':'عقدتي', 'assets.nodeHint':'يستخدم فهرس عقدتك، أو فحصًا كاملًا إن لم يتوفر.',
+  'assets.scope':'يبحث عن أصول المحافظ الفرعية الثلاث. تبقى أرصدتها منفصلة.',
+  'assets.manual':'رموز الدفع وخيارات إضافية',
+  'assets.fallback':'تعذر إكمال الاستعادة بالفهرس. يتابع الفحص الخاص الكامل.',
+  'rm.fastHint':'يستخدم فهرس العقدة. تعرف العقدة العملات التي تملكها.',
+  'rm.node':'عقدتي', 'rm.nodeHint':'يستخدم فهرس عقدتك أو فحصًا كاملًا إن لم يتوفر. يتطلب neptune-core مع --utxo-index.',
+  'rm.private':'فحص خاص', 'rm.privateHint':'يقرأ البلوكات محليًا. يستغرق وقتًا أطول ولا يرسل بحثًا عن عناوينك.',
+  'private.restore':'اختر سريع أو فحص خاص أو عقدتي في استعادة الأصول. ابدأ قبل أول دفعة.',
+});
+
+Object.assign(STRINGS.en, {'backup.encryptedOnly':'Encrypted recovery options are available only in the Encrypted sub-wallet.'});
+Object.assign(STRINGS.fr, {'backup.encryptedOnly':'Les options de récupération chiffrée sont disponibles uniquement dans le sous-portefeuille Chiffré.'});
+Object.assign(STRINGS.ar, {'backup.encryptedOnly':'خيارات الاستعادة المشفّرة متاحة في المحفظة الفرعية المشفّرة فقط.'});
+Object.assign(STRINGS.en, {'err.actionUnknown':'The action may have started. Check your wallet status before trying again.'});
+Object.assign(STRINGS.fr, {'err.actionUnknown':'L’action a peut-être commencé. Vérifiez l’état du portefeuille avant de réessayer.'});
+Object.assign(STRINGS.ar, {'err.actionUnknown':'قد يكون الإجراء قد بدأ. تحقق من حالة المحفظة قبل المحاولة مجددًا.'});
+
+Object.assign(STRINGS.en, {'pg.unknown':'Payment outcome unknown','pg.unknownHint':'The node may have received this payment. New payments stay blocked. Resend the original transaction or wait for confirmation.','pg.retryOriginal':'Resend original'});
+Object.assign(STRINGS.fr, {'pg.unknown':'Résultat du paiement inconnu','pg.unknownHint':'La transaction a peut-être été reçue. Les nouveaux paiements restent bloqués. Renvoyez la transaction originale ou attendez sa confirmation.','pg.retryOriginal':'Renvoyer l’original'});
+Object.assign(STRINGS.ar, {'pg.unknown':'نتيجة الدفع غير معروفة','pg.unknownHint':'قد تكون العقدة قد استلمت هذه الدفعة. تبقى الدفعات الجديدة محظورة. أعد إرسال المعاملة الأصلية أو انتظر التأكيد.','pg.retryOriginal':'إعادة إرسال الأصل'});
+Object.assign(STRINGS.en, {'assets.scope':'Saved for this sub-wallet. Local block scans can update all balances.'});
+Object.assign(STRINGS.fr, {'assets.scope':'Choix mémorisé pour ce sous-portefeuille. Les scans locaux peuvent actualiser tous les soldes.'});
+Object.assign(STRINGS.ar, {'assets.scope':'يُحفظ الاختيار لهذه المحفظة الفرعية. يمكن للفحص المحلي تحديث جميع الأرصدة.'});
+Object.assign(STRINGS.en, {'backup.hint':'Optional password-encrypted copy of the recovery phrase shared by all three sub-wallets. Import it in a compatible wallet, then scan the same network. Local labels, outgoing message copies and unfinished sends are not included.'});
+Object.assign(STRINGS.fr, {'backup.hint':'Copie facultative, chiffrée par mot de passe, de la phrase commune aux trois sous-portefeuilles. Importez-la dans une application compatible puis analysez le même réseau. Les libellés, copies des messages envoyés et envois inachevés ne sont pas inclus.'});
+Object.assign(STRINGS.ar, {'backup.hint':'نسخة اختيارية مشفّرة بكلمة مرور من عبارة الاستعادة المشتركة بين المحافظ الفرعية الثلاث. استوردها في محفظة متوافقة ثم افحص الشبكة نفسها. لا تشمل التسميات المحلية أو نسخ الرسائل المرسلة أو الدفعات غير المكتملة.'});
+
+Object.assign(STRINGS.en, {
+ 'home.refreshAssets':'Refresh assets','home.refreshed':'Assets updated','home.refreshRunning':'Syncing your assets…','home.refreshFailed':'The balance could not be refreshed. Try again.',
+ 'codes.title':'Payment codes','codes.navHint':'Add a code from the sender','codes.more':'More options','codes.moreHint':'Scan from a known block',
+ 'codes.hint':'Paste a payment code from the sender. Funds appear only after its block has been checked.',
+ 'codes.check':'Check code','codes.add':'Add payment','codes.waiting':'Waiting payments','codes.scanTitle':'Find an older payment','codes.block':'First payment block','codes.scanBlock':'Scan from this block',
+ 'codes.scanHint':'Uses a local Private scan. Your saved recovery method stays unchanged.',
+ 'codes.badBlock':'Enter a whole block number, 0 or higher.','codes.otherProfile':'This code belongs to another sub-wallet. Open that wallet to add it.'
+});
+Object.assign(STRINGS.fr, {
+ 'home.refreshAssets':'Actualiser les actifs','home.refreshed':'Actifs actualisés','home.refreshRunning':'Synchronisation des actifs…','home.refreshFailed':'Le solde n’a pas pu être actualisé. Réessayez.',
+ 'codes.title':'Codes de paiement','codes.navHint':'Ajouter un code reçu de l’expéditeur','codes.more':'Autres options','codes.moreHint':'Scanner depuis un bloc connu',
+ 'codes.hint':'Collez le code reçu de l’expéditeur. Les fonds apparaissent après vérification de leur bloc.',
+ 'codes.check':'Vérifier le code','codes.add':'Ajouter le paiement','codes.waiting':'Paiements en attente','codes.scanTitle':'Retrouver un ancien paiement','codes.block':'Bloc du premier paiement','codes.scanBlock':'Scanner depuis ce bloc',
+ 'codes.scanHint':'Utilise un scan privé local. Votre méthode de récupération enregistrée reste inchangée.',
+ 'codes.badBlock':'Saisissez un numéro de bloc entier, égal ou supérieur à 0.','codes.otherProfile':'Ce code appartient à un autre sous-portefeuille. Ouvrez-le pour ajouter le paiement.'
+});
+Object.assign(STRINGS.ar, {
+ 'home.refreshAssets':'تحديث الأصول','home.refreshed':'تم تحديث الأصول','home.refreshRunning':'جارٍ مزامنة الأصول…','home.refreshFailed':'تعذر تحديث الرصيد. حاول مجددًا.',
+ 'codes.title':'رموز الدفع','codes.navHint':'إضافة رمز من المُرسل','codes.more':'خيارات إضافية','codes.moreHint':'الفحص من بلوك معروف',
+ 'codes.hint':'الصق رمز الدفع من المُرسل. تظهر الأموال بعد التحقق من البلوك الخاص بها.',
+ 'codes.check':'فحص الرمز','codes.add':'إضافة الدفعة','codes.waiting':'دفعات قيد الانتظار','codes.scanTitle':'العثور على دفعة قديمة','codes.block':'بلوك أول دفعة','codes.scanBlock':'الفحص من هذا البلوك',
+ 'codes.scanHint':'يستخدم فحصًا خاصًا محليًا. تبقى طريقة الاستعادة المحفوظة دون تغيير.',
+ 'codes.badBlock':'أدخل رقم بلوك صحيحًا، 0 أو أكثر.','codes.otherProfile':'هذا الرمز يخص محفظة فرعية أخرى. افتحها لإضافة الدفعة.'
+});
+Object.assign(STRINGS.en, {'codes.remove':'Remove code','codes.removeConfirm':'Remove this waiting code? Keep the original code if you may need to add it again. This does not cancel the payment.','claim.statusNew':'Ready to add','claim.registered':'Payment added. Waiting for its block.'});
+Object.assign(STRINGS.fr, {'codes.remove':'Retirer le code','codes.removeConfirm':'Retirer ce code en attente ? Conservez le code original pour pouvoir le réajouter. Cela n’annule pas le paiement.','claim.statusNew':'Prêt à ajouter','claim.registered':'Paiement ajouté. En attente de son bloc.'});
+Object.assign(STRINGS.ar, {'codes.remove':'إزالة الرمز','codes.removeConfirm':'هل تريد إزالة الرمز المنتظر؟ احتفظ بالرمز الأصلي لإضافته مجددًا عند الحاجة. هذا لا يلغي الدفعة.','claim.statusNew':'جاهز للإضافة','claim.registered':'تمت إضافة الدفعة. بانتظار البلوك الخاص بها.'});
+Object.assign(STRINGS.en, {'pc.summaryGood':'No privacy-setting alerts','pc.headGood':'Privacy settings checked'});
+Object.assign(STRINGS.fr, {'pc.summaryGood':'Aucune alerte sur les réglages de confidentialité','pc.headGood':'Réglages de confidentialité vérifiés'});
+Object.assign(STRINGS.ar, {'pc.summaryGood':'لا تنبيهات على إعدادات الخصوصية','pc.headGood':'تم فحص إعدادات الخصوصية'});

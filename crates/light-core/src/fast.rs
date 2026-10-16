@@ -8,8 +8,8 @@
 //!    locally, exactly as a full scan would;
 //! 3. asks `wallet_restoreMembershipProof` for membership proofs of the coins
 //!    it found, all relative to one block (the node's tip), and checks every
-//!    proof against that block's mutator set: a server can hide coins, but
-//!    cannot invent them;
+//!    proof against that block's mutator set. This checks internal consistency,
+//!    not consensus authenticity of the server-supplied snapshot;
 //! 4. learns from the same check which coins are already spent, and asks
 //!    `utxoindex_blockHeightsByAbsoluteIndexSets` where, for the history.
 //!
@@ -21,7 +21,7 @@
 //! Without it the first request fails and the caller falls back to the
 //! private full scan.
 
-use std::collections::{BTreeMap, BTreeSet, HashMap};
+use std::collections::{BTreeMap, BTreeSet, HashMap, HashSet};
 
 use anyhow::{Result, anyhow, ensure};
 use neptune_consensus::transaction::utxo::Utxo;
@@ -60,6 +60,10 @@ pub const MAX_INDEX_SETS_PER_CALL: usize = 256;
 /// keys beyond the look-ahead window, which the next round asks about.
 pub const MAX_ROUNDS: u32 = 64;
 
+/// Pinned node's `MAX_NUM_BLOCKS_IN_LOOKUP_LIST`. Shared envelope flags hit
+/// this cap across ALL recipients; a capped result cannot establish recovery.
+pub const INDEX_LOOKUP_LIMIT: usize = 10_000;
+
 #[derive(Debug, Clone)]
 struct Found {
     utxo: Utxo,
@@ -72,6 +76,8 @@ struct Found {
     height: u64,
     hash: String,
     timestamp_ms: u64,
+    private_message: Option<String>,
+    exposed_private: bool,
 }
 
 impl Found {
@@ -109,12 +115,14 @@ pub struct FastProgress {
 /// network requests.
 #[derive(Debug, Default)]
 pub struct FastRestore {
+    /// None for an explicit whole-seed restore; Some for sub-wallet recovery.
+    profile: Option<crate::profiles::Profile>,
     /// Next unused (generation, symmetric, ec-hybrid) indices seen so far.
     counts: (u64, u64, u64),
-    /// Key counts of the last flags request.
-    asked: Option<(u64, u64, u64)>,
-    /// Blocks scanned, with the key counts they were scanned with.
-    scanned: BTreeMap<u64, (u64, u64, u64)>,
+    /// Discovery revision (known coin count) at the last flags request.
+    asked: Option<usize>,
+    /// Blocks scanned, with the discovery revision they were scanned with.
+    scanned: BTreeMap<u64, usize>,
     /// Coins found, by AOCL leaf index.
     found: BTreeMap<u64, Found>,
     /// Proofs relative to `snapshot`, by AOCL leaf index.
@@ -184,6 +192,46 @@ impl FastRestore {
         Self::default()
     }
 
+    pub fn for_profile(profile: crate::profiles::Profile) -> Self {
+        Self {
+            profile: Some(profile),
+            ..Self::default()
+        }
+    }
+
+    fn includes(&self, key: KeyRef) -> bool {
+        self.profile
+            .is_none_or(|p| crate::profiles::profile_of(key) == p)
+    }
+
+    /// Keep coins already known locally, including payments without any
+    /// public announcement. Their proofs are requested and verified again.
+    pub fn seed_state(&mut self, state: &WalletState) {
+        self.counts.0 = self.counts.0.max(state.next_generation_index);
+        self.counts.1 = self.counts.1.max(state.next_symmetric_index);
+        self.counts.2 = self.counts.2.max(state.next_ec_hybrid_index);
+        for u in &state.utxos {
+            if !self.includes(u.key) {
+                continue;
+            }
+            let i = u.membership_proof.aocl_leaf_index;
+            bump(&mut self.counts, u.key);
+            self.found.entry(i).or_insert_with(|| Found {
+                utxo: u.utxo.clone(),
+                sender_randomness: u.sender_randomness,
+                receiver_preimage: u.receiver_preimage,
+                key: u.key,
+                aocl_index: i,
+                block_leaves: u.block_leaves.unwrap_or((i, i)),
+                height: u.received_height,
+                hash: String::new(),
+                timestamp_ms: state.tip_timestamp_ms,
+                private_message: None,
+                exposed_private: false,
+            });
+        }
+    }
+
     pub fn progress(&self) -> FastProgress {
         FastProgress {
             blocks_scanned: self.scanned.len(),
@@ -194,24 +242,45 @@ impl FastRestore {
     }
 
     fn scan_keys(&self, keys: &Keys) -> Vec<(KeyRef, SpendingKey)> {
-        keys.scan_keys(self.counts.0, self.counts.1, self.counts.2)
-            .into_iter()
-            .filter(|(key, _)| crate::keys::private_index(*key).is_none())
-            .collect()
+        let mut all = keys.scan_keys(self.counts.0, self.counts.1, self.counts.2);
+        let known = self.found.values().map(|f| f.key).collect::<Vec<_>>();
+        for candidate in keys.profile_scan_keys_for(&known, self.counts.1) {
+            if !all.iter().any(|(r, _)| *r == candidate.0) {
+                all.push(candidate);
+            }
+        }
+        all.retain(|(key, _)| self.includes(*key));
+        all
     }
 
     /// The next `utxoindex_blockHeightsByFlags` request, or `None` when the
     /// last one already covered every key in the look-ahead window.
     pub fn flags_request(&mut self, keys: &Keys, id: u64) -> Result<Option<String>> {
-        if self.asked == Some(self.counts) {
+        if self.asked == Some(self.found.len()) {
             return Ok(None);
         }
-        let announcement_flags: Vec<AnnouncementFlag> = self
+        let mut announcement_flags: Vec<AnnouncementFlag> = self
             .scan_keys(keys)
             .iter()
             .map(|(_, k)| AnnouncementFlag::from(&k.to_address()))
             .collect();
-        self.asked = Some(self.counts);
+        // Query public format/version flags shared by EVERY encrypted payer.
+        // No scanning key is sent to the node. Fast mode also queries normal
+        // notices to encrypted receiving keys, so downgraded receipts are found;
+        // these receiver-ID lookups are part of its explicit privacy tradeoff.
+        if keys.network() != Network::Main
+            && self
+                .profile
+                .is_none_or(|p| p == crate::profiles::Profile::Encrypted)
+        {
+            for version in 1..=3 {
+                announcement_flags.push(AnnouncementFlag {
+                    flag: BFieldElement::new(crate::private_notification::MARKER),
+                    receiver_id: BFieldElement::new(version),
+                });
+            }
+        }
+        self.asked = Some(self.found.len());
         let params = serde_json::to_value(BlockHeightsByFlagsRequest { announcement_flags })?;
         Ok(Some(request_body(id, METHOD_HEIGHTS_BY_FLAGS, params)))
     }
@@ -220,11 +289,15 @@ impl FastRestore {
     /// current keys, ascending.
     pub fn heights_to_fetch(&self, body: &str) -> Result<Vec<u64>> {
         let r: BlockHeightsByFlagsResponse = result_from_envelope(body)?;
+        ensure!(
+            r.block_heights.len() < INDEX_LOOKUP_LIMIT,
+            "FAST_INDEX_LIMIT: node lookup may be capped; a full scan is required"
+        );
         let wanted: BTreeSet<u64> = r
             .block_heights
             .into_iter()
             .map(u64::from)
-            .filter(|h| *h > 0 && self.scanned.get(h) != Some(&self.counts))
+            .filter(|h| *h > 0 && self.scanned.get(h) != Some(&self.found.len()))
             .collect();
         Ok(wanted.into_iter().collect())
     }
@@ -234,8 +307,9 @@ impl FastRestore {
     pub fn scan_blocks(&mut self, keys: &Keys, body: &str) -> Result<usize> {
         let mut new = 0;
         for block in rpc::parse_blocks(body)? {
+            let scan_state = sync::state_from_block(block.clone(), keys.network())?;
             let d = sync::decode(block);
-            if self.scanned.get(&d.height) == Some(&self.counts) {
+            if self.scanned.get(&d.height) == Some(&self.found.len()) {
                 continue;
             }
             let update = d
@@ -250,22 +324,55 @@ impl FastRestore {
                 .checked_sub(additions.len() as u64)
                 .ok_or_else(|| anyhow!("block {} adds more leaves than it holds", d.height))?;
 
-            let used = self.counts;
+            let used = self.found.len();
             let scan_keys = self.scan_keys(keys);
-            let incoming = SpendingKey::scan_announcements_for_keys(
+            let ordinary = SpendingKey::scan_announcements_for_keys(
                 &d.kernel.body.transaction_kernel.announcements,
                 scan_keys.iter().map(|(_, k)| k.clone()),
             );
-            for iu in incoming
+            let mut incoming = ordinary
                 .into_iter()
                 .filter(|iu| iu.utxo.all_type_script_states_are_valid())
-            {
-                let record = iu.addition_record();
+                .map(|iu| {
+                    let key = Keys::find_owner(&scan_keys, iu.utxo.lock_script_hash())
+                        .ok_or_else(|| anyhow!("decrypted a UTXO no scanned key can unlock"))?;
+                    Ok((iu.addition_record(), (iu, key, None)))
+                })
+                .collect::<Result<HashMap<_, _>>>()?;
+            let mut exposed = incoming
+                .iter()
+                .filter(|(_, (_, key, _))| {
+                    crate::profiles::profile_of(*key) == crate::profiles::Profile::Encrypted
+                })
+                .map(|(r, _)| *r)
+                .collect::<HashSet<_>>();
+            for receipt in crate::private_notification::scan_receipts(
+                &d.kernel.body.transaction_kernel.announcements,
+                keys,
+                &scan_state,
+            ) {
+                if !self.includes(receipt.key) {
+                    continue;
+                }
+                let record = receipt.incoming.addition_record();
+                if SpendingKey::scan_announcements_for_keys(
+                    &d.kernel.body.transaction_kernel.announcements,
+                    vec![keys.key(receipt.key)],
+                )
+                .iter()
+                .any(|iu| iu.addition_record() == record)
+                {
+                    exposed.insert(record);
+                }
+                incoming.insert(
+                    record,
+                    (receipt.incoming, receipt.key, Some(receipt.message)),
+                );
+            }
+            for (record, (iu, key, private_message)) in incoming {
                 let Some(pos) = additions.iter().position(|a| *a == record) else {
                     continue; // announced but not an output of this block
                 };
-                let key = Keys::find_owner(&scan_keys, iu.utxo.lock_script_hash())
-                    .ok_or_else(|| anyhow!("decrypted a UTXO no scanned key can unlock"))?;
                 let aocl_index = first_leaf + pos as u64;
                 if self.found.contains_key(&aocl_index) {
                     continue;
@@ -283,6 +390,8 @@ impl FastRestore {
                         height: d.height,
                         hash: d.hash.to_hex(),
                         timestamp_ms: d.kernel.header.timestamp.to_millis(),
+                        private_message,
+                        exposed_private: exposed.contains(&record),
                     },
                 );
                 new += 1;
@@ -473,21 +582,27 @@ impl FastRestore {
                 // the snapshot, which is all the balance needs.
                 Some(h) => Some(h.unwrap_or(state.height)),
             };
-            event_at(&mut events, f.height, &f.hash, f.timestamp_ms)
-                .received
-                .push(UtxoEvent {
-                    wallet_mode: crate::profiles::profile_of(f.key).name().into(),
-                    aocl_index: f.aocl_index,
-                    amount: f.utxo.get_native_currency_amount().to_string(),
-                    is_change: f.key.is_change(),
-                    tx_id: None,
-                    private_message: None,
-                    address_kind: match f.key {
-                        KeyRef::Generation(_) => Some("generation".into()),
-                        KeyRef::EcHybrid(_) => Some("ec-hybrid".into()),
-                        KeyRef::Symmetric(_) => None,
-                    },
-                });
+            if !f.hash.is_empty() {
+                event_at(&mut events, f.height, &f.hash, f.timestamp_ms)
+                    .received
+                    .push(UtxoEvent {
+                        wallet_mode: crate::profiles::profile_of(f.key).name().into(),
+                        aocl_index: f.aocl_index,
+                        amount: f.utxo.get_native_currency_amount().to_string(),
+                        is_change: f.key.is_change(),
+                        tx_id: None,
+                        private_message: f.private_message.clone(),
+                        address_kind: if f.exposed_private {
+                            Some("private-unprotected".into())
+                        } else {
+                            match f.key {
+                                KeyRef::Generation(_) => Some("generation".into()),
+                                KeyRef::EcHybrid(_) => Some("ec-hybrid".into()),
+                                KeyRef::Symmetric(_) => None,
+                            }
+                        },
+                    });
+            }
             if let Some(Some(h)) = self.spent.get(&f.aocl_index) {
                 let (hash, ts) = self
                     .spend_blocks
@@ -520,5 +635,55 @@ impl FastRestore {
         state.next_symmetric_index = counts.1;
         state.next_ec_hybrid_index = counts.2;
         Ok((state, events.into_values().collect()))
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    #[test]
+    fn scoped_flags_never_include_another_subwallet_key() {
+        use crate::profiles::{Profile, profile_of};
+        let phrase = Keys::phrase_from_entropy(&[91; 24]).unwrap();
+        let keys = Keys::from_phrase(&phrase, Network::TestnetMock).unwrap();
+        for profile in [Profile::Standard, Profile::Refresh, Profile::Encrypted] {
+            let mut scoped = FastRestore::for_profile(profile);
+            assert!(
+                scoped
+                    .scan_keys(&keys)
+                    .iter()
+                    .all(|(key, _)| profile_of(*key) == profile)
+            );
+            let value: serde_json::Value =
+                serde_json::from_str(&scoped.flags_request(&keys, 1).unwrap().unwrap()).unwrap();
+            let params: BlockHeightsByFlagsRequest =
+                serde_json::from_value(value["params"].clone()).unwrap();
+            let expected = scoped
+                .scan_keys(&keys)
+                .iter()
+                .map(|(_, key)| AnnouncementFlag::from(&key.to_address()))
+                .collect::<Vec<_>>();
+            for flag in params.announcement_flags {
+                assert!(
+                    expected
+                        .iter()
+                        .any(|f| f.flag == flag.flag && f.receiver_id == flag.receiver_id)
+                        || (profile == Profile::Encrypted
+                            && flag.flag.value() == crate::private_notification::MARKER)
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn capped_index_results_require_full_scanning() {
+        let response=serde_json::json!({"result":BlockHeightsByFlagsResponse{block_heights:(1..=INDEX_LOOKUP_LIMIT as u64).map(Into::into).collect()}}).to_string();
+        assert!(
+            FastRestore::new()
+                .heights_to_fetch(&response)
+                .unwrap_err()
+                .to_string()
+                .contains("FAST_INDEX_LIMIT")
+        );
     }
 }

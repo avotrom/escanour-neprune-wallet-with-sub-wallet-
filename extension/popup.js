@@ -9,7 +9,7 @@ import { contactAddresses, visibleWatch, scanProgress, singleFlight } from './li
 import { readAddressFromFile, readAddressFromImageBlob, cleanAddress } from './lib/qrimport.js';
 
 const $ = (id) => document.getElementById(id);
-const SCREENS = ['welcome', 'ready', 'setup', 'unlock', 'home', 'address-history', 'modes', 'mode-standard', 'mode-refresh', 'private-payments', 'private-backup', 'private-recovery', 'private-history', 'settings', 'contacts', 'phrase', 'servers', 'advanced', 'about', 'pcheck', 'tor', 'watch', 'claim', 'archive'];
+const SCREENS = ['welcome', 'ready', 'setup', 'unlock', 'home', 'address-history', 'modes', 'mode-standard', 'mode-refresh', 'private-payments', 'private-backup', 'private-recovery', 'private-history', 'settings', 'contacts', 'phrase', 'servers', 'advanced', 'about', 'pcheck', 'tor', 'watch', 'claim', 'payment-codes', 'recovery-options', 'archive'];
 const PARAMS = new URLSearchParams(location.search);
 const IN_TAB = PARAMS.get('view') === 'tab';
 // The wallet's usual home: Chrome's side panel, full height next to the page.
@@ -31,7 +31,6 @@ let receivingHistoryIndex = null;
 let addressHistoryRequest = 0;
 let addressHistoryKind = 'generation';
 let addressHistoryOffset = 0;
-let recoveryWallet = 'standard';
 let privateAddressRevealed = false;
 let lastAvail = null;
 let lastSend = null;
@@ -46,6 +45,7 @@ const addrCache = {}; // kind -> receiving address (one per kind and network)
 let contacts = [];
 let homeWatchCache = [];
 let currentScreen = 'home';
+let secretEpoch = 0;
 let watchOrigin = 'home';
 let watchFocus = null; // decrypted address book for this network
 
@@ -54,6 +54,7 @@ if (IN_PANEL) document.body.classList.add('in-panel');
 
 // ------------------------------------------------------------ messaging ---
 
+const RETRY_SAFE = new Set(['state','home','summary','activity','contacts','receive','addressHistory','privacy','price','torStatus','watchList','waiting','archiveStatus','proofReport','latestSend','addressInfo','qr','checkPhrase','heightForDate','testServer']);
 async function call(cmd, args) {
   // The service worker may be asleep: retry briefly while it wakes up.
   for (let attempt = 0; attempt < 4; attempt++) {
@@ -64,6 +65,7 @@ async function call(cmd, args) {
       return r.data;
     } catch (e) {
       const transient = /no response|Receiving end|Could not establish/i.test(String(e.message));
+      if(transient && !RETRY_SAFE.has(cmd))throw new Error(t('err.actionUnknown'));
       if (!transient || attempt === 3) throw transient ? new Error(t('err.service')) : e;
       await new Promise((res) => setTimeout(res, 250 * (attempt + 1)));
     }
@@ -73,6 +75,13 @@ async function call(cmd, args) {
 // ------------------------------------------------------------- helpers ----
 
 function showScreen(name) {
+  if(name!==currentScreen) {
+    secretEpoch++;
+    if(currentScreen==='phrase') {revealed='';$('revealGrid').textContent='';$('revealPw').value='';$('revealBox').hidden=true;$('revealForm').hidden=false;}
+    if(currentScreen==='watch') {$('vkOut').textContent='';$('vkOut').hidden=true;$('vkPw').value='';}
+    if(currentScreen==='private-backup')$('recoveryExportPassword').value='';
+    if(currentScreen==='payment-codes')clearClaimReview(true);
+  }
   currentScreen = name;
   for (const s of SCREENS) $(`v-${s}`).hidden = s !== name;
   $(`v-${name}`).scrollTop = 0;
@@ -361,14 +370,17 @@ $('hideAssets').onclick = async () => {
 };
 
 /** One request for everything on the home screen (one decrypted state). */
-const refreshHome = singleFlight(async () => {
+let homeRequest=0;
+async function refreshHome() {
+  const request=++homeRequest, network=app?.settings?.network, profile=activeMode(app?.settings||{}), epoch=secretEpoch;
   let h;
   try {
     h = await call('home');
   } catch (e) {
-    if (e.message === 'NO_STATE') $('balAvail').textContent = '—';
-    return;
+    if (e.message === 'NO_STATE'&&request===homeRequest&&app?.unlocked&&app.settings.network===network&&activeMode(app.settings)===profile&&epoch===secretEpoch) $('balAvail').textContent = '—';
+    return false;
   }
+  if(request!==homeRequest||!app?.unlocked||app.settings.network!==network||activeMode(app.settings)!==profile||secretEpoch!==epoch||(h.profile&&h.profile!==profile))return false;
   contacts = h.contacts || [];
   if (app && h.height != null) app.status = { ...app.status, height: h.height };
   $('hideAssets').textContent = t(app?.settings?.hideAssets ? 'watch.showAmounts' : 'watch.hideAmounts');
@@ -384,7 +396,8 @@ const refreshHome = singleFlight(async () => {
   renderPrivacy(h.privacy);
   renderHomeWatch(h.watch || []);
   renderPrivatePanel();
-});
+  return true;
+}
 
 /** Actions passed when the popup reopens as a tab (file pickers close popups). */
 function runUrlAction() {
@@ -572,7 +585,8 @@ $('recoveryImport').onclick = async () => {
     const phrase = await decryptRecoveryFile(pendingRecoveryFile, $('recoveryImportPassword').value);
     if (generation !== recoveryGeneration) return;
     $('phraseInput').value = phrase;
-    pendingRecoveryFile = ''; $('recoveryImportPassword').value = ''; $('recoveryImportBox').hidden = true;
+    clearClaimReview(true);waitingRequest++;$('claimWaiting').textContent='';$('claimAdopted').textContent='';
+  pendingRecoveryFile = ''; $('recoveryImportPassword').value = ''; $('recoveryImportBox').hidden = true;
     updatePhraseCount(); toast(t('setup.fileRead'));
   } catch (e) { err('recoveryImportError', e); }
   finally { busy($('recoveryImport'), false); }
@@ -591,7 +605,7 @@ $('setupGo').onclick = async () => {
   // without asking when the wallet was created. A new wallet starts at the tip.
   const from = setupMode === 'restore' ? { birthday: 1 } : {};
   if (setupMode === 'restore') {
-    from.restoreMode = document.querySelector('input[name="restoreMode"]:checked')?.value || 'modes';
+    from.restoreMode = document.querySelector('input[name="restoreMode"]:checked')?.value || 'private';
     if (from.restoreMode === 'node') {
       let url;
       try {
@@ -683,14 +697,14 @@ function renderStatus(st) {
     sub = st.watchFast ? t('watch.indexShort', { n: st.watchFast.found || 0 }) : `${fmtNum(p.at)} / ${fmtNum(p.end)}`;
     ratio = p.end ? Math.max(0.04, Math.min(1, p.at / p.end)) : 0;
   } else if (st.height != null && st.tip != null) {
-    if (st.height >= st.tip) {
+    if (st.fastPhase || st.fastPending) {
+      title = t('rm.title2');
+      sub = t('rm.running', { n: st.fastFound || 0 });
+    } else if (st.height >= st.tip) {
       state = 'ok';
       title = t('status.upToDate');
       sub = `#${fmtNum(st.height)}`;
       ratio = 1;
-    } else if (st.fastPhase || st.fastPending) {
-      title = t('rm.title2');
-      sub = t('rm.running', { n: st.fastFound || 0 });
     } else {
       const start = Math.min(st.startHeight ?? st.height, st.height);
       ratio = st.tip > start ? Math.max(0.04, (st.height - start) / (st.tip - start)) : 0;
@@ -713,15 +727,23 @@ function renderStatus(st) {
   wrap.title = st.lastCheckAt ? t('status.lastCheck', { time: new Date(st.lastCheckAt).toLocaleTimeString(lang()) }) : '';
 }
 
-$('statusBtn').onclick = async () => {
-  if (app?.status?.error === 'NEED_SERVER') return openServers(app.settings.network);
-  renderStatus({ ...(app?.status || {}), error: null, serverOk: undefined, height: null });
+let assetsRefreshing=false;
+async function refreshAssetsNow() {
+  if(!app?.unlocked||assetsRefreshing)return;
+  if(app.status?.error==='NEED_SERVER')return openServers(app.settings.network);
+  const network=app.settings.network, profile=activeMode(app.settings),epoch=secretEpoch;
+  const current=()=>app?.unlocked&&app.settings.network===network&&activeMode(app.settings)===profile&&secretEpoch===epoch;
+  assetsRefreshing=true;const button=$('refreshAssets');button.disabled=true;button.setAttribute('aria-busy','true');
   try {
-    await call('sync');
-  } catch (e) {
-    if (e.message !== 'NEED_SERVER') toast(String(e.message || e));
-  }
-};
+    const state=await call('sync');if(!current())return;
+    app.status=state||app.status;renderStatus(app.status);
+    if(app.status?.error||app.status?.serverOk===false)throw new Error(app.status.error||t('status.unreachable'));
+    const updated=await refreshHome();if(!updated&&current())throw new Error(t('home.refreshFailed'));
+    if(current())toast(t(app.status?.syncing||app.status?.fastPending?'home.refreshRunning':'home.refreshed'));
+  }catch(e){if(current())toast(String(e.message||e));}
+  finally{assetsRefreshing=false;button.disabled=false;button.setAttribute('aria-busy','false');}
+}
+$('statusBtn').onclick=$('refreshAssets').onclick=refreshAssetsNow;
 
 // -------------------------------------------------------------- balance ---
 
@@ -1586,7 +1608,7 @@ $('confirmSend').onclick = async () => {
 
 const STEP_OF = {
   starting: 'wait', 'waiting-block': 'wait', preparing: 'build', rebuilding: 'build',
-  proving: 'prove', proved: 'send', submitting: 'send', done: 'done',
+  proving: 'prove', proved: 'send', submitting: 'send', uncertain: 'send', done: 'done',
 };
 const ORDER = ['wait', 'build', 'prove', 'send', 'done'];
 
@@ -1612,15 +1634,16 @@ function renderProgress(s) {
   const total = s.jobCount || 0;
   $('pgCount').textContent = s.status === 'proving' && total ? t('pg.count', { a: s.jobsDone || 0, b: total }) : '';
   $('pgBar').style.width = `${Math.round(progressPct(s))}%`;
-  $('pgTitle').textContent = s.toKind === 'private-app' && !['done', 'failed'].includes(s.status) ? t('private.sending') : s.status === 'done' ? t('pg.done') : s.status === 'failed' ? t('pg.notSent') : t('pg.sending');
+  $('pgTitle').textContent = s.status==='uncertain' ? t('pg.unknown') : s.toKind === 'private-app' && !['done', 'failed'].includes(s.status) ? t('private.sending') : s.status === 'done' ? t('pg.done') : s.status === 'failed' ? t('pg.notSent') : t('pg.sending');
   $('pgDetail').textContent =
     s.status === 'preparing' && s.toKind === 'private-app' ? t('private.encrypting') : s.status === 'rebuilding' ? t('pg.rebuilding', { n: s.attempt })
-      : s.status === 'done' ? t('pg.confirmSoon')
+      : s.status === 'uncertain' ? t('pg.unknownHint') : s.status === 'done' ? t('pg.confirmSoon')
         : s.status === 'submitting' || s.status === 'proved' ? t('pg.uploading')
           : s.lastJob ? t('pg.finished', { job: s.lastJob }) : '';
   $('lustrationBox').hidden = s.status !== 'needs-lustration';
   $('pgErr').textContent = s.status === 'failed' ? s.error || t('pg.failed') : '';
-  $('pgActions').hidden = s.status !== 'failed';
+  $('pgActions').hidden = !['failed','uncertain'].includes(s.status);
+  $('pgRetry').textContent=t(s.status==='uncertain'?'pg.retryOriginal':'pg.retry');
   $('pgCancel').hidden = !CANCELLABLE.includes(s.status) || !s.id;
 }
 
@@ -1641,7 +1664,7 @@ $('pgRetry').onclick = async () => {
   try {
     await call('dismissSend', { id: lastSend.id });
     await call('retrySend', { id: lastSend.id });
-    renderProgress({ status: 'starting', amount: lastSend.amount });
+    renderProgress({ ...lastSend, status: lastSend.status==='uncertain'?'submitting':'starting' });
   } catch (e) {
     $('pgErr').textContent = String(e.message || e);
   } finally {
@@ -1670,7 +1693,7 @@ $('pgCancel').onclick = async () => {
 
 const STEP_LABEL = {
   starting: 'pg.wait', 'waiting-block': 'pg.wait', preparing: 'pg.build', rebuilding: 'pg.build',
-  proving: 'pg.prove', proved: 'pg.send', submitting: 'pg.send', done: 'pg.done', failed: 'pg.notSent', 'needs-lustration': 'pg.needsOk',
+  proving: 'pg.prove', proved: 'pg.send', submitting: 'pg.send', uncertain: 'pg.unknown', done: 'pg.done', failed: 'pg.notSent', 'needs-lustration': 'pg.needsOk',
 };
 
 function renderSendCard(send) {
@@ -1686,7 +1709,7 @@ function renderSendCard(send) {
   $('scStep').textContent =
     send.status === 'proving' && send.jobCount ? t('pg.proveShort', { a: send.jobsDone || 0, b: send.jobCount }) : t(STEP_LABEL[send.status] || 'pg.sending');
   $('scBar').style.width = `${Math.round(progressPct(send))}%`;
-  $('scNote').textContent = send.status === 'failed' ? t('banner.failed') : send.status === 'done' ? t('pg.confirmSoon') : '';
+  $('scNote').textContent = send.status === 'uncertain' ? t('pg.unknownHint') : send.status === 'failed' ? t('banner.failed') : send.status === 'done' ? t('pg.confirmSoon') : '';
   card.onclick = () => {
     renderProgress(send);
     openSheet('progress');
@@ -2016,7 +2039,8 @@ function refreshOpenScreen() {
     if (!$('v-archive').hidden) renderArchive().catch(() => {});
     if (!$('v-watch').hidden) renderWatch().catch(() => {});
     if (!$('v-home').hidden || currentScreen.startsWith('private')) refreshHome().catch(() => {});
-    if (!$('v-claim').hidden) renderWaiting().catch(() => {});
+    if (!$('v-claim').hidden) renderAssetRecovery();
+    if (['payment-codes','recovery-options'].includes(currentScreen)) renderWaiting().catch(() => {});
   }, 1500);
 }
 
@@ -2044,7 +2068,8 @@ async function openWatch(origin = currentScreen === 'settings' ? 'settings' : 'h
   watchOrigin = origin;
   showScreen('watch');
   $('vkOut').hidden = true; $('vkOut').textContent = ''; $('vkPw').value = '';
-  $('vkForm').hidden = false; err('vkErr');
+  $('vkForm').hidden = activeMode(app.settings)==='encrypted'; err('vkErr');
+  $('vkScope').textContent=t(activeMode(app.settings)==='encrypted'?'assets.viewUnsupported':'assets.viewCurrent');
   const selected = $('watchContact').value;
   await loadContacts();
   $('watchContact').replaceChildren(new Option(t('watch.noContact'), ''));
@@ -2221,8 +2246,10 @@ $('vkForm').onsubmit = async (ev) => {
   ev.preventDefault();
   err('vkErr');
   busy($('vkGo'), true);
+  const epoch=secretEpoch;
   try {
     const keys = await call('viewingKeys', { password: $('vkPw').value });
+    if(epoch!==secretEpoch||currentScreen!=='watch'||!app?.unlocked)return;
     $('vkPw').value = '';
     $('vkForm').hidden = true;
     const out = $('vkOut');
@@ -2232,6 +2259,7 @@ $('vkForm').onsubmit = async (ev) => {
   } catch (e) {
     err('vkErr', /password/i.test(String(e.message)) ? t('unlock.wrong') : e);
   } finally {
+    $('vkPw').value='';
     busy($('vkGo'), false);
   }
 };
@@ -2278,161 +2306,181 @@ function vkBlock(kind, k) {
 
 function claimErr(e) {
   const m = String(e?.message || e);
+  if (/another sub-wallet/i.test(m)) return t('codes.otherProfile');
   if (/another wallet|no key of this wallet/i.test(m)) return t('claim.errOther');
   if (/not a payment notification/i.test(m)) return t('claim.errNotCode');
   return m;
 }
 
-let claimShown = null;
+let claimShown = null, claimRevision = 0, claimCheckPending = false, waitingRequest = 0;
+let assetRecoveryReturn = 'settings', assetRecoveryProfile = 'standard';
+
+function clearClaimReview(clearText=false) {
+  claimRevision++; claimShown=null;
+  if(clearText)$('claimText').value='';
+  $('claimCard').hidden=true;
+  for(const id of ['claimAmount','claimLock','claimTo','claimStatus'])$(id).textContent='';
+  $('claimRead').disabled=claimCheckPending||!$('claimText').value.trim();
+  err('claimErr');
+}
+function claimContext() {
+  return {epoch:secretEpoch,revision:claimRevision,page:currentScreen,walletMode:assetRecoveryProfile,networkContext:app?.settings?.network};
+}
+function claimCurrent(c, review=true) {
+  return app?.unlocked && c.epoch===secretEpoch && (!review||c.revision===claimRevision) && c.page===currentScreen && c.walletMode===activeMode(app.settings) && c.networkContext===app.settings.network;
+}
+function claimArgs(c) {return {walletMode:c.walletMode,networkContext:c.networkContext};}
+$('claimText').oninput=()=>clearClaimReview();
 
 async function openClaim() {
-  showScreen('claim');
-  $('claimText').value = '';
-  $('claimCard').hidden = true;
-  $('claimPremineOut').hidden = true;
-  $('premineProg').hidden = true;
-  $('claimWait').hidden = true;
-  $('claimCancel').hidden = true;
-  $('claimFrom').value = '';
-  err('claimErr');
-  claimShown = null;
-  await renderWaiting();
+  assetRecoveryReturn=currentScreen;
+  assetRecoveryProfile=activeMode(app.settings);
+  const mode=app.settings.recoveryModes?.[assetRecoveryProfile] || (assetRecoveryProfile==='standard'?'fast':'private');
+  for(const r of document.querySelectorAll('input[name="assetRecoveryMode"]'))r.checked=r.value===mode;
+  $('assetNodeField').hidden=mode!=='node';
+  const server=app.settings.servers?.[app.settings.network]?.sync;
+  $('assetNodeUrl').value=isLocalUrl(server)?server:'http://127.0.0.1:9797/';
+  err('assetRecoveryError');renderAssetRecovery();showScreen('claim');
 }
 
-async function renderWaiting() {
-  let w;
-  try {
-    w = await call('waiting');
-  } catch (e) {
-    err('claimErr', e);
-    return;
-  }
-  const ul = $('claimWaiting');
-  ul.textContent = '';
-  if (!w.list.length) {
-    const li = document.createElement('li');
-    li.className = 'dim';
-    li.textContent = t('claim.waitingEmpty');
-    ul.append(li);
-  }
-  for (const c of w.list) {
-    const li = document.createElement('li');
-    const txt = document.createElement('span');
-    const b = document.createElement('b');
-    b.textContent = `${fmtAmt(c.amount)} NPT`;
-    const sm = document.createElement('small');
-    sm.textContent = c.release_ms ? t('claim.lock', { d: new Date(c.release_ms).toLocaleDateString(lang()) }) : t('claim.noLock');
-    txt.append(b, sm);
-    const x = document.createElement('button');
-    x.className = 'btn plain danger-text';
-    x.textContent = t('claim.forget');
-    x.onclick = async () => {
-      busy(x, true);
-      try {
-        await call('claimRemove', { record: c.addition_record });
-        await renderWaiting();
-      } catch (e) {
-        toast(String(e.message || e));
-        busy(x, false);
-      }
-    };
-    li.append(txt, x);
-    ul.append(li);
-  }
-  $('claimPast').textContent = w.archive ? t('claim.pastArchive') : t('claim.pastNoArchive');
-  const ad = w.lastAdopted?.list?.filter((x) => !x.spent) || [];
-  $('claimAdopted').hidden = !ad.length;
-  if (ad.length) $('claimAdopted').textContent = ad.map((x) => t('claim.adopted', { n: fmtAmt(x.amount), h: fmtNum(x.height) })).join('\n');
+function renderAssetRecovery() {
+  const st=app?.status || {},h=Number(st.height||0),tip=Number(st.tip||h),start=Number(st.startHeight||0);
+  $('assetRecoveryWallet').textContent=t(`modes.${assetRecoveryProfile}`);
+  $('assetEncryptedRecovery').hidden=assetRecoveryProfile!=='encrypted';
+  $('assetRecoveryBar').style.width=`${Math.round(tip>start?Math.max(0,Math.min(1,(h-start)/(tip-start)))*100:100)}%`;
+  $('assetRecoveryStatus').textContent=st.fastPending||st.fastPhase?t('rm.running',{n:st.fastFound||0}):st.fastFailed?t('assets.fallback'):st.error?String(st.error):t('assets.progress',{h:fmtNum(h),t:fmtNum(tip)});
+  const running=Boolean(st.fastPending||st.fastPhase||(st.syncing&&st.recoveryMode));
+  if(running&&st.recoveryMode){const label=t(st.recoveryMode==='fast'?'rm.fast':st.recoveryMode==='node'?'assets.node':'assets.private');$('assetRecoveryStatus').textContent=`${label} · ${$('assetRecoveryStatus').textContent}`;}
+  $('assetRecover').disabled=running;
 }
-
-$('claimRead').onclick = async () => {
-  err('claimErr');
-  $('claimCard').hidden = true;
-  const text = $('claimText').value.trim();
-  if (!text) return;
-  busy($('claimRead'), true);
-  try {
-    const c = await call('claimCheck', { text });
-    claimShown = text;
-    $('claimAmount').textContent = `${fmtAmt(c.amount)} NPT`;
-    $('claimLock').textContent = c.release_ms ? t('claim.lock', { d: new Date(c.release_ms).toLocaleDateString(lang()) }) : t('claim.noLock');
-    $('claimTo').textContent = t('claim.to', { k: c.key_kind === 'change' ? t('kind.change') : kindLabel(c.key_kind) });
-    const st = { new: t('claim.statusNew'), waiting: t('claim.statusWaiting'), owned: t('claim.statusOwned') }[c.status] || '';
-    $('claimStatus').textContent = st;
-    $('claimStatus').dataset.s = c.status;
-    $('claimGo').hidden = c.status !== 'new';
-    $('claimCard').hidden = false;
-  } catch (e) {
-    err('claimErr', claimErr(e));
-  } finally {
-    busy($('claimRead'), false);
+$('assetRecoveryBack').onclick=()=>showScreen(assetRecoveryReturn);
+for(const r of document.querySelectorAll('input[name="assetRecoveryMode"]'))r.onchange=()=>{$('assetNodeField').hidden=r.value!=='node'||!r.checked;};
+$('assetEncryptedRecovery').onclick=()=>openPrivatePage('recovery','encrypted');
+$('assetRecover').onclick=async()=>{
+  const button=$('assetRecover');err('assetRecoveryError');
+  const mode=document.querySelector('input[name="assetRecoveryMode"]:checked')?.value||'private';
+  let nodeUrl;
+  if(mode==='node') {
+    try{nodeUrl=new URL($('assetNodeUrl').value.trim()).href;}catch{return err('assetRecoveryError',t('rm.badUrl'));}
+    const url=new URL(nodeUrl);
+    if(!['http:','https:'].includes(url.protocol))return err('assetRecoveryError',t('rm.badUrl'));
+    const granted=await chrome.permissions.request({origins:[`${url.protocol}//${url.hostname}/*`]}).catch(()=>false);
+    if(!granted)return err('assetRecoveryError',t('srv.denied'));
   }
+  busy(button,true);
+  try{await call('rescan',{birthday:0,mode,nodeUrl,walletMode:assetRecoveryProfile,networkContext:app.settings.network});app=await call('state');renderAssetRecovery();toast(t('assets.started'));}
+  catch(e){err('assetRecoveryError',e);}finally{busy(button,false);renderAssetRecovery();}
 };
 
-$('claimGo').onclick = async () => {
-  if (!claimShown) return;
-  try {
-    const r = await runJob({ cmd: 'claimRegister', args: { text: claimShown }, btn: $('claimGo'), cancelBtn: $('claimCancel'), line: $('claimWait') });
-    if (r.cancelled && !r.late) return;
-    toast(t('claim.registered'));
-    $('claimCard').hidden = true;
-    $('claimText').value = '';
-    claimShown = null;
-    await renderWaiting();
-  } catch (e) {
-    err('claimErr', claimErr(e));
+
+function openPaymentCodes() {
+  clearClaimReview(true);
+  $('paymentCodeWallet').textContent=t(`modes.${assetRecoveryProfile}`);
+  $('claimWaitingPanel').open=false; $('claimWaiting').textContent=''; $('claimWaitingCount').textContent='0';
+  $('claimAdopted').hidden=true; showScreen('payment-codes');renderWaiting();
+}
+function openRecoveryOptions() {
+  $('claimOptionsWallet').textContent=t(`modes.${assetRecoveryProfile}`);
+  $('claimPreminePanel').hidden=assetRecoveryProfile!=='standard';$('claimPreminePanel').open=false;
+  $('claimFrom').value='';$('claimPremineOut').hidden=true;$('premineProg').hidden=true;
+  err('claimOptionsError');showScreen('recovery-options');renderWaiting();
+}
+$('assetPaymentCodes').onclick=openPaymentCodes;
+$('assetMoreOptions').onclick=openRecoveryOptions;
+$('paymentCodesBack').onclick=$('recoveryOptionsBack').onclick=()=>showScreen('claim');
+
+async function renderWaiting() {
+  const ctx=claimContext(), request=++waitingRequest;
+  let w;
+  try {w=await call('waiting',claimArgs(ctx));}
+  catch(e){if(claimCurrent(ctx,false))err(currentScreen==='payment-codes'?'claimErr':'claimOptionsError',e);return;}
+  if(!claimCurrent(ctx,false)||request!==waitingRequest)return;
+  $('claimPast').textContent=w.archive?t('claim.pastArchive'):t('claim.pastNoArchive');
+  if(currentScreen!=='payment-codes')return;
+  const ul=$('claimWaiting');ul.textContent='';$('claimWaitingCount').textContent=String(w.list.length);
+  if(!w.list.length){const li=document.createElement('li');li.className='dim';li.textContent=t('claim.waitingEmpty');ul.append(li);}
+  for(const c of w.list) {
+    const li=document.createElement('li'),txt=document.createElement('span'),b=document.createElement('b'),sm=document.createElement('small');
+    b.textContent=`${fmtAmt(c.amount)} NPT`;
+    sm.textContent=c.release_ms?t('claim.lock',{d:new Date(c.release_ms).toLocaleDateString(lang())}):t('claim.noLock');txt.append(b,sm);
+    const x=document.createElement('button');x.className='btn plain danger-text';x.textContent=t('codes.remove');
+    const confirmation=document.createElement('div');confirmation.className='code-remove-confirm';confirmation.hidden=true;
+    const explanation=document.createElement('p');explanation.textContent=t('codes.removeConfirm');
+    const actions=document.createElement('div');actions.className='row2';
+    const keep=document.createElement('button');keep.className='btn soft';keep.textContent=t('job.cancel');
+    const remove=document.createElement('button');remove.className='btn soft danger-text';remove.textContent=t('codes.remove');
+    x.onclick=()=>{if(claimCurrent(ctx,false)){confirmation.hidden=false;x.hidden=true;}};
+    keep.onclick=()=>{confirmation.hidden=true;x.hidden=false;};
+    remove.onclick=async()=>{
+      if(!claimCurrent(ctx,false)||confirmation.hidden)return;
+      busy(remove,true);keep.disabled=true;
+      try{await call('claimRemove',{record:c.addition_record,...claimArgs(ctx)});if(claimCurrent(ctx,false))await renderWaiting();}
+      catch(e){if(claimCurrent(ctx,false))toast(String(e.message||e));}
+      finally{busy(remove,false);keep.disabled=false;}
+    };
+    actions.append(keep,remove);confirmation.append(explanation,actions);li.append(txt,x,confirmation);ul.append(li);
   }
+  const ad=w.lastAdopted?.list?.filter(x=>!x.spent)||[];
+  $('claimAdopted').hidden=!ad.length;
+  $('claimAdopted').textContent=ad.map(x=>t('claim.adopted',{n:fmtAmt(x.amount),h:fmtNum(x.height)})).join('\n');
+}
+
+$('claimRead').onclick=async()=>{
+  if(claimCheckPending)return;
+  clearClaimReview();
+  const text=$('claimText').value.trim();if(!text)return;
+  const ctx=claimContext();claimCheckPending=true;busy($('claimRead'),true);
+  try {
+    const c=await call('claimCheck',{text,...claimArgs(ctx)});
+    if(!claimCurrent(ctx)||$('claimText').value.trim()!==text)return;
+    claimShown={text,context:ctx};
+    $('claimAmount').textContent=`${fmtAmt(c.amount)} NPT`;
+    $('claimLock').textContent=c.release_ms?t('claim.lock',{d:new Date(c.release_ms).toLocaleDateString(lang())}):t('claim.noLock');
+    $('claimTo').textContent=t('claim.to',{k:c.key_kind==='change'?t('kind.change'):kindLabel(c.key_kind)});
+    $('claimStatus').textContent={new:t('claim.statusNew'),waiting:t('claim.statusWaiting'),owned:t('claim.statusOwned')}[c.status]||'';
+    $('claimStatus').dataset.s=c.status;$('claimGo').hidden=c.status!=='new';$('claimCard').hidden=false;
+  } catch(e){if(claimCurrent(ctx))err('claimErr',claimErr(e));}
+  finally{claimCheckPending=false;busy($('claimRead'),false);$('claimRead').disabled=!$('claimText').value.trim();}
+};
+
+$('claimGo').onclick=async()=>{
+  const shown=claimShown;if(!shown||!claimCurrent(shown.context)||$('claimText').value.trim()!==shown.text)return;
+  try {
+    const r=await runJob({cmd:'claimRegister',args:{text:shown.text,...claimArgs(shown.context)},btn:$('claimGo'),cancelBtn:$('claimCancel'),line:$('claimWait')});
+    if((r.cancelled&&!r.late)||!claimCurrent(shown.context))return;
+    const result=r.data??r.late;
+    toast(t(result?.status==='owned'?'claim.statusOwned':result?.status==='waiting'?'claim.statusWaiting':'claim.registered'));
+    clearClaimReview(true);await renderWaiting();$('claimWaitingPanel').open=true;
+  }catch(e){if(claimCurrent(shown.context))err('claimErr',claimErr(e));}
 };
 
 async function rescanFrom(height) {
+  const ctx=claimContext();if(!Number.isSafeInteger(Number(height))||Number(height)<0){err('claimOptionsError',t('codes.badBlock'));return;}
+  busy($('claimRescan'),true);busy($('claimRescanStart'),true);err('claimOptionsError');
   try {
-    const r = await call('rescan', { birthday: height });
-    toast(t('claim.rescanned', { h: fmtNum(r.start) }));
-  } catch (e) {
-    err('claimErr', e);
-  }
+    const r=await call('rescan',{birthday:privateRecoveryStart(height),mode:'private',rememberMode:false,...claimArgs(ctx)});
+    if(!claimCurrent(ctx))return;
+    const next=await call('state');if(!claimCurrent(ctx))return;app=next;
+    renderAssetRecovery();showScreen('claim');toast(t('claim.rescanned',{h:fmtNum(r.start)}));
+  }catch(e){if(claimCurrent(ctx))err('claimOptionsError',e);}
+  finally{busy($('claimRescan'),false);busy($('claimRescanStart'),false);}
 }
+$('claimRescan').onclick=()=>{const v=$('claimFrom').value.trim();if(v===''){err('claimOptionsError',t('codes.badBlock'));$('claimFrom').focus();return;}return rescanFrom(v);};
+$('claimRescanStart').onclick=()=>rescanFrom(0);
 
-$('claimRescan').onclick = () => {
-  const v = $('claimFrom').value.trim();
-  if (v === '' || !(Number(v) >= 0)) return $('claimFrom').focus();
-  rescanFrom(Math.floor(Number(v)));
-};
-$('claimRescanStart').onclick = () => rescanFrom(0);
-
-$('claimPremine').onclick = async () => {
-  const prog = $('premineProg');
-  const out = $('claimPremineOut');
-  out.hidden = true;
-  $('premineBar').style.width = '2%';
-  prog.hidden = false;
+$('claimPremine').onclick=async()=>{
+  const ctx=claimContext();if(ctx.walletMode!=='standard')return;
+  const prog=$('premineProg'),out=$('claimPremineOut');out.hidden=true;$('premineBar').style.width='2%';prog.hidden=false;err('claimOptionsError');
   try {
-    const r = await runJob({
-      cmd: 'findPremine', btn: $('claimPremine'), cancelBtn: $('premineCancel'), line: $('premineLine'), waitAfterMs: 0,
-      onProgress: (m) => {
-        if (m.phase === 'genesis') {
-          $('premineLine').textContent = t('claim.premineGenesis');
-          $('premineBar').style.width = '4%';
-        } else if (m.phase === 'keys') {
-          const p = Math.round((100 * m.done) / m.total);
-          $('premineLine').textContent = t('claim.premineKeys', { i: m.done, p });
-          $('premineBar').style.width = `${Math.max(4, p)}%`;
-        }
-      },
-    });
-    if (r.cancelled && !r.late) {
-      $('premineBar').style.width = '0%';
-      return; // the line says "Cancelled"; the button is free again
-    }
-    const res = r.data ?? r.late;
-    prog.hidden = true;
-    out.textContent = !res.found ? t('claim.premineNone') : res.archive ? t('claim.premineArchive', { n: res.found }) : t('claim.premineScan', { n: res.found });
-    out.hidden = false;
-    await renderWaiting();
-  } catch (e) {
-    prog.hidden = true;
-    err('claimErr', e);
-  }
+    const r=await runJob({cmd:'findPremine',args:claimArgs(ctx),btn:$('claimPremine'),cancelBtn:$('premineCancel'),line:$('premineLine'),waitAfterMs:0,onProgress:m=>{
+      if(!claimCurrent(ctx))return;
+      if(m.phase==='genesis'){$('premineLine').textContent=t('claim.premineGenesis');$('premineBar').style.width='4%';}
+      else if(m.phase==='keys'){const p=Math.round(100*m.done/m.total);$('premineLine').textContent=t('claim.premineKeys',{i:m.done,p});$('premineBar').style.width=`${Math.max(4,p)}%`;}
+    }});
+    if(!claimCurrent(ctx))return;
+    if(r.cancelled&&!r.late){$('premineBar').style.width='0%';return;}
+    const res=r.data??r.late;prog.hidden=true;out.textContent=!res.found?t('claim.premineNone'):res.archive?t('claim.premineArchive',{n:res.found}):t('claim.premineScan',{n:res.found});out.hidden=false;
+  }catch(e){if(claimCurrent(ctx)){prog.hidden=true;err('claimOptionsError',e);}}
 };
 
 // -------------------------------------------------------- local archive ---
@@ -2840,8 +2888,10 @@ $('setLanguage').onchange = async () => {
 };
 $('recoveryExportForm').onsubmit = async ev => {
   ev.preventDefault(); busy($('recoveryExport'), true); err('recoveryExportError');
+  const epoch=secretEpoch;
   try {
     const text = await call('exportRecovery', { password: $('recoveryExportPassword').value });
+    if(epoch!==secretEpoch||currentScreen!=='private-backup'||!app?.unlocked||activeMode(app.settings)!=='encrypted')return;
     saveText(text, 'escanour-encrypted-recovery.json');
   } catch (e) { err('recoveryExportError', e); }
   finally { $('recoveryExportPassword').value = ''; busy($('recoveryExport'), false); }
@@ -3073,8 +3123,11 @@ $('revealForm').onsubmit = async (ev) => {
   err('revealErr');
   const b = $('revealGo');
   busy(b, true);
+  const epoch=secretEpoch;
   try {
-    revealed = await call('revealPhrase', { password: $('revealPw').value });
+    const phrase = await call('revealPhrase', { password: $('revealPw').value });
+    if(epoch!==secretEpoch||currentScreen!=='phrase'||!app?.unlocked)return;
+    revealed=phrase;
     wordsInto($('revealGrid'), revealed);
     $('revealBox').hidden = false;
     $('revealForm').hidden = true;
@@ -3082,12 +3135,14 @@ $('revealForm').onsubmit = async (ev) => {
   } catch {
     err('revealErr', t('unlock.wrong'));
   } finally {
+    $('revealPw').value='';
     busy(b, false);
   }
 };
 $('copyPhrase').onclick = () => revealed && copySecret(revealed);
 $('savePhrase').onclick = () => revealed && saveText(phraseFileText(revealed), 'escanour-recovery-phrase.txt');
 $('revealHide').onclick = () => {
+  secretEpoch++;$('revealGrid').textContent='';
   revealed = '';
   openSub('phrase');
 };
@@ -3120,6 +3175,7 @@ chrome.runtime.onMessage.addListener((msg) => {
   if (msg.type === 'status') {
     if (msg.network && app?.settings && msg.network !== app.settings.network) return;
     if (app) app.status = msg.status;
+    if (currentScreen==='claim') renderAssetRecovery();
     if (!$('v-home').hidden) renderHomeWatch(homeWatchCache);
     if (!$('v-home').hidden || currentScreen.startsWith('private')) renderPrivatePanel();
     if (!$('v-home').hidden) renderStatus(msg.status);
@@ -3142,7 +3198,7 @@ chrome.runtime.onMessage.addListener((msg) => {
     if (!$('v-home').hidden) refreshHome();
     if (!$('v-watch').hidden) renderWatch();
   }
-  if (msg.type === 'locked') { clearWatchSecrets(); clearPrivateText(); closeSheet(); boot().catch(() => {}); }
+  if (msg.type === 'locked') { if(app)app.unlocked=false;clearWatchSecrets(); clearPrivateText(); closeSheet(); boot().catch(() => {}); }
   if (msg.type === 'contacts') { loadContacts().then(() => { if (!$('v-contacts').hidden) renderContacts(); }); }
   if (msg.type === 'send') {
     if (msg.send.network && app?.settings && msg.send.network !== app.settings.network) return;
@@ -3188,8 +3244,11 @@ function updateEncryptedMessageCount() {
 for (const button of document.querySelectorAll('#sendMode [data-mode]')) button.onclick = () => setSendNotificationMode(button.dataset.mode);
 $('sendEncryptedMessage').oninput = updateEncryptedMessageCount;
 function clearPrivateText() {
+  secretEpoch++;revealed='';$('revealGrid').textContent='';$('revealPw').value='';$('revealBox').hidden=true;$('revealForm').hidden=false;
+  $('phraseGrid').textContent='';delete $('phraseGrid').dataset.phrase;$('pw1').value='';$('pw2').value='';
   receiveRequest++; addressHistoryRequest++; receivingHistoryIndex=null; $('addressHistoryList').textContent='';
   recoveryGeneration++; $('phraseInput').value = '';
+  clearClaimReview(true);waitingRequest++;$('claimWaiting').textContent='';$('claimAdopted').textContent='';
   pendingRecoveryFile = ''; $('recoveryImportPassword').value = ''; $('recoveryExportPassword').value = '';
   $('sendEncryptedMessage').value = ''; $('txEncryptedMessage').textContent = ''; $('rvMessage').textContent = '';
   $('txDetails').textContent = ''; $('txNoteInput').value = ''; $('sendNote').value = '';
@@ -3206,12 +3265,12 @@ function renderPrivatePanel() {
   const text = t(`private.state.${state}`);
   $('goModes').dataset.state = 'ready'; $('privateStripState').textContent = text; $('privateState').textContent = text;
   $('privateSend').disabled = $('privateReceive').disabled = !enabled;
-  $('privateRecover').disabled = false;
-  $('recoveryPageTitle').textContent=t(recoveryWallet==='encrypted'?'recovery.encryptedTitle':'private.scanTitle');
-  $('openRecoveredEncrypted').hidden=recoveryWallet!=='encrypted'||!settings.createdWallets?.encrypted||settings.network==='main';
-  $('walletRecoveryTitle').textContent=t(`modes.${recoveryWallet}`);
-  $('walletRecoveryHint').textContent=t(recoveryWallet==='encrypted'?'recovery.encryptedHint':'private.restore');
-  $('privateRecover').textContent=t(recoveryWallet==='encrypted'?'recovery.scanEncrypted':'private.recover');
+  $('privateRecover').disabled = !enabled || activeMode(settings)!=='encrypted';
+  $('recoveryPageTitle').textContent=t('recovery.encryptedTitle');
+  $('openRecoveredEncrypted').hidden=!settings.createdWallets?.encrypted||settings.network==='main';
+  $('walletRecoveryTitle').textContent=t('modes.encrypted');
+  $('walletRecoveryHint').textContent=t('recovery.encryptedHint');
+  $('privateRecover').textContent=t('recovery.scanEncrypted');
   const start = Number(st.startHeight || 0), height = Number(st.height || 0), tip = Number(st.tip || height);
   const ratio = tip > start ? Math.max(0, Math.min(1, (height - start) / (tip - start))) : 1;
   $('privateScanBar').style.width = `${Math.round(ratio * 100)}%`;
@@ -3234,7 +3293,7 @@ function renderPrivatePanel() {
   renderModes();
 }
 $('goModes').onclick = openModes;
-function openPrivatePage(name,profile=activeMode(app.settings)) { if(name==='recovery')recoveryWallet=profile;privateTrail.push(currentScreen);renderPrivatePanel();showScreen(`private-${name}`); }
+function openPrivatePage(name,profile=activeMode(app.settings)) { if(['backup','recovery'].includes(name) && (profile!=='encrypted'||activeMode(app.settings)!=='encrypted')){toast(t('backup.encryptedOnly'));return;}privateTrail.push(currentScreen);renderPrivatePanel();showScreen(`private-${name}`); }
 for (const b of document.querySelectorAll('.private-route')) b.onclick = () => {
   openPrivatePage(b.dataset.privatePage,b.dataset.recoveryWallet || activeMode(app.settings));
 };
@@ -3249,7 +3308,7 @@ $('privateRecover').onclick = async () => {
   const button = $('privateRecover'); busy(button, true); err('privateRecoveryError');
   try {
     const start = privateRecoveryStart($('privateFirstBlock').value);
-    await call('rescan', { birthday: start });
+    await call('rescan', { birthday: start, mode:'private', walletMode:'encrypted', networkContext:app.settings.network, encryptedOnly:true, rememberMode:false });
     app = await call('state'); renderPrivatePanel(); toast(t('private.recoveryStarted'));
   } catch (e) { err('privateRecoveryError', e); }
   finally { busy(button, false); }
@@ -3265,6 +3324,8 @@ function renderModes() {
   $('refreshHero').dataset.state=created.refresh?'on':'off';
   $('createRefreshWallet').hidden=created.refresh;$('useRefreshMode').hidden=!created.refresh;
   $('createEncryptedWallet').hidden=created.encrypted;$('useEncryptedMode').hidden=!created.encrypted;
+  $('refreshAssetsOpen').hidden=!created.refresh;
+  $('encryptedAssetsOpen').hidden=$('encryptedDetailsRecovery').hidden=!created.encrypted;
   $('createEncryptedWallet').disabled=s.network==='main';
   if(s.network==='main') $('modeEncryptedState').textContent=t('private.testOnly');
   for(const b of document.querySelectorAll('.use-mode')) b.textContent=t('modes.open');

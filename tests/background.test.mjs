@@ -12,17 +12,27 @@ async function harness() {
   const key=await crypto.subtle.generateKey({name:'AES-GCM',length:256},true,['encrypt','decrypt']);
   const stores={kv:'kv',snapshots:'snapshots',sends:'sends',jobs:'jobs',proofs:'proofs'};
   const maps=Object.fromEntries(Object.values(stores).map(n=>[n,new Map()]));
-  const db={STORES:stores,get:async(s,k)=>maps[s].get(k),put:async(s,k,v)=>maps[s].set(k,v),del:async(s,k)=>maps[s].delete(k),keys:async s=>[...maps[s].keys()],delPrefix:async(s,p)=>{for(const k of maps[s].keys())if(k.startsWith(p))maps[s].delete(k);}};
-  const vault={sessionKey:async()=>key,exportRawKey:async()=>new Uint8Array(32),phrase:async()=>'',
+  const db={STORES:stores,wipeExcept:async()=>{for(const map of Object.values(maps))map.clear();},get:async(s,k)=>maps[s].get(k),put:async(s,k,v)=>maps[s].set(k,v),del:async(s,k)=>maps[s].delete(k),keys:async s=>[...maps[s].keys()],delPrefix:async(s,p)=>{for(const k of maps[s].keys())if(k.startsWith(p))maps[s].delete(k);}};
+  const vault={create:async()=>key,sessionKey:async()=>key,exportRawKey:async()=>new Uint8Array(32),phrase:async()=>'',
     encrypt:async(k,data)=>{const iv=crypto.getRandomValues(new Uint8Array(12));return{iv,data:new Uint8Array(await crypto.subtle.encrypt({name:'AES-GCM',iv},k,data))}},
     decrypt:async(k,b)=>new Uint8Array(await crypto.subtle.decrypt({name:'AES-GCM',iv:b.iv},k,b.data))};
   const encode=o=>enc.encode(JSON.stringify(o)),decode=b=>JSON.parse(dec.decode(b));
   class Wallet {
+    genesisState(){return encode({height:0,watch:[],coins:[]});}
+    stateFromBlock(body){return encode({height:JSON.parse(body).to,watch:[],coins:[]});}
+    expectedList(bytes){const st=decode(bytes);return (st.expected||[]).filter(c=>!st.profile||c.profile===st.profile);}
+    claimDecode(bytes,text,profile){if(text!==profile)throw Error('This payment belongs to another sub-wallet');const st=decode(bytes);return {profile,amount:'1',key_kind:'generation',addition_record:profile,status:(st.expected||[]).some(c=>c.addition_record===profile)?'waiting':'new'};}
+    claimRegister(bytes,text,profile){const claim=this.claimDecode(bytes,text,profile),st=decode(bytes);if(claim.status==='new')st.expected=[...(st.expected||[]),{profile,addition_record:profile,amount:'1'}];return {state:encode(st),claim};}
+    claimRemove(bytes,record){const st=decode(bytes);return encode({...st,expected:st.expected.filter(c=>c.addition_record!==record)});}
+    viewingKeys(bytes,profile){return {profile,index:decode(bytes).receiveIndex||0};}
+    mergeRecoveredProfile(oldBytes,newBytes,profile){const old=decode(oldBytes),next=decode(newBytes);return encode({...next,coins:[...(next.coins||[]),...(old.coins||[]).filter(c=>c.profile!==profile)]});}
+    carryOver(oldBytes,newBytes){const old=decode(oldBytes),next=decode(newBytes);return encode({...next,watch:old.watch,expected:old.expected||[]});}
+    rescanState(oldBytes,newBytes){const old=decode(oldBytes),next=decode(this.carryOver(oldBytes,newBytes));return encode({...next,expected:[...next.expected,...(old.coins||[])]});}
     profileReceiveAddress(bytes,profile,kind){const st=decode(bytes);const index=profile==='refresh'?st.receiveIndex||0:0;return {index,profile,kind,address:profile==='encrypted'?`nescan:${kind}:${index}`:`${profile}:${kind}:${index}`};}
     profileAddressAt(profile,kind,index){return `${profile}:${kind}:${index}`;}
     profileAddressHistory(bytes,profile,kind,offset){const index=decode(bytes).receiveIndex||0;return {profile,kind,rows:offset?[]:[{index,address:this.profileAddressAt(profile,kind,index),current:true,receipts:0}],total:1,next:1};}
     profileState(bytes,profile){return encode({...decode(bytes),profile});}
-    summary(bytes){const st=decode(bytes);return {available:st.balances?.[st.profile]||'0',utxos:(st.coins||[]).filter(u=>u.profile===st.profile),by_kind:{generation:'0',ec_hybrid:'0'}};}
+    summary(bytes){const st=decode(bytes);return {available:st.balances?.[st.profile]||'0',utxos:(st.coins||[]).filter(u=>!st.profile||u.profile===st.profile),by_kind:{generation:'0',ec_hybrid:'0'}};}
     addressAt(kind,index){return `${kind}:${index}`;}
     receiveAddress(bytes,kind){const st=decode(bytes);return {index:st.receiveIndex||0,address:this.addressAt(kind,st.receiveIndex||0),kind};}
     privateAppAddress(){return 'nescan:0';}
@@ -34,16 +44,16 @@ async function harness() {
     free(){}
   }
   const light={maxBlocksPerCall:()=>2,getBlocksRequest:(id,from,to)=>JSON.stringify({from,to}),LightWallet:Wallet,addressInfo:(a)=>({valid:/^(nolga|nech)/.test(a),kind:a.startsWith('nech')?'ec-hybrid':'generation'})};
-  const settings={network:'main',createdWallets:{standard:true,refresh:false,encrypted:false},servers:{main:{sync:'https://example.invalid/',broadcast:'https://example.invalid/'}},exactPrivacy:false};
-  const settingsStore={NETWORKS:['main'],load:async()=>settings,save:async patch=>Object.assign(settings,patch),serversFor:s=>s.servers[s.network]};
+  const settings={network:'main',createdWallets:{standard:true,refresh:false,encrypted:false},servers:Object.fromEntries(['main','testnet','testnet-mock'].map(n=>[n,{sync:'https://example.invalid/',broadcast:'https://example.invalid/'}])),exactPrivacy:false};
+  const settingsStore={NETWORKS:['main','testnet','testnet-mock'],load:async()=>settings,save:async patch=>Object.assign(settings,patch),serversFor:(s,n=s.network)=>s.servers[n]};
   const session={};const listener={addListener:()=>{}};
-  const chrome={runtime:{sendMessage:async()=>{},getURL:x=>x,getPlatformInfo:async()=>{},onMessage:listener,onInstalled:listener,onStartup:listener},notifications:{onClicked:listener},storage:{session:{get:async k=>({[k]:session[k]}),set:async patch=>Object.assign(session,patch)}},alarms:{create:()=>{},onAlarm:listener},sidePanel:{setPanelBehavior:async()=>{}}};
+  const chrome={runtime:{sendMessage:async()=>{},getURL:x=>x,getContexts:async()=>[],getPlatformInfo:async()=>{},onMessage:listener,onInstalled:listener,onStartup:listener},notifications:{onClicked:listener},storage:{session:{clear:async()=>{for(const k of Object.keys(session))delete session[k];},get:async k=>({[k]:session[k]}),set:async patch=>Object.assign(session,patch)}},alarms:{create:()=>{},onAlarm:listener},sidePanel:{setPanelBehavior:async()=>{}}};
   const rpc={interrupt:()=>{},id:()=>1,post:async(url,body)=>body,normalizeServer:url=>new URL(url).origin+'/'};
-  const source=fs.readFileSync(new URL('../extension/background.js',import.meta.url),'utf8').replace(/^import .*;\n/gm,'')+'\nglobalThis.api = {commands, latestSnapshot, saveSnapshot, dropWallet, setStatus, status, requireWallet, watchCatchUp, watchFastStep, saveSend, getSend, recordBlockEvents, readActivity};';
-  const context=vm.createContext({chrome,db,vault,light,rpc,settingsStore,...model,...privateModel,...walletModes,encryptRecoveryFile,initLight:async()=>{},t:x=>x,setLanguage:()=>{},TextEncoder,TextDecoder,Uint8Array,ArrayBuffer,crypto,URL,AbortController,AbortSignal,Date,console,setTimeout:()=>1,clearTimeout:()=>{},setInterval:()=>1,clearInterval:()=>{}});
+  const source=fs.readFileSync(new URL('../extension/background.js',import.meta.url),'utf8').replace(/^import .*;\n/gm,'')+'\nglobalThis.api = {commands, latestSnapshot, saveSnapshot, dropWallet, setStatus, status, requireWallet, watchCatchUp, watchFastStep, saveSend, getSend, recordBlockEvents, readActivity, runFastRestore, configureRecoveryNode, setTorState, handleSubmitted, resumeSends, expireOldSends, exclusive, plus};';
+  const context=vm.createContext({chrome,db,vault,light,rpc,settingsStore,...model,...privateModel,...walletModes,encryptRecoveryFile,initLight:async()=>{},t:x=>x,setLanguage:()=>{},TextEncoder,TextDecoder,Uint8Array,ArrayBuffer,crypto,URL,AbortController,AbortSignal,Date,console,setTimeout:(fn,ms)=>{if(ms===0)queueMicrotask(fn);return 1;},clearTimeout:()=>{},setInterval:()=>1,clearInterval:()=>{}});
   new vm.Script(source).runInContext(context);
   const initial=encode({height:100,watch:[]});await context.api.saveSnapshot(key,100,initial,'main');
-  return {api:context.api,maps,key,initial,rpc,light,vault,settings};
+  return {api:context.api,maps,key,initial,rpc,light,vault,settings,chrome};
 }
 
 test('backend enforces private address opt-in and mainnet exclusion before any send',async()=>{
@@ -123,6 +133,11 @@ test('seed recovery discovers funded optional wallets and home shows only the se
 
 test('encrypted recovery export requires the current wallet password',async()=>{
   const h=await harness();
+  await assert.rejects(h.api.commands.exportRecovery({password:'unused'}),/only available/);
+  await h.api.commands.createSubwallet({mode:'refresh'});
+  await assert.rejects(h.api.commands.exportRecovery({password:'unused'}),/only available/);
+  h.settings.network='testnet';await h.api.saveSnapshot(h.key,100,h.initial,'testnet');h.api.dropWallet();
+  await h.api.commands.createSubwallet({mode:'encrypted'});
   h.vault.checkPassword=async password=>{if(password!=='correct password')throw Error('Wrong password');return Array(18).fill('test').join(' ');};
   await assert.rejects(h.api.commands.exportRecovery({password:'wrong'}),/password/);
   const text=await h.api.commands.exportRecovery({password:'correct password'});
@@ -225,4 +240,274 @@ test('recipient messages are encrypted at rest and saving fails closed on lock',
   h.vault.sessionKey=async()=>null;
   await assert.rejects(h.api.saveSend({id:'locked-send',privateMessage:message}),/locked/);
   assert.equal(h.maps.sends.has('locked-send'),false);
+});
+
+test('asset recovery offers all three modes for every sub-wallet and keeps known funds until indexed recovery finishes',async()=>{
+  for(const profile of ['standard','refresh','encrypted']) for(const mode of ['fast','private','node']) {
+    const h=await harness();h.settings.network='testnet';h.settings.activeMode=profile;h.settings.privateNotifications=true;h.settings.autoRefresh=true;h.settings.createdWallets={standard:true,refresh:true,encrypted:true};
+    const original=new TextEncoder().encode(JSON.stringify({height:100,watch:[],coins:[{profile:'standard'},{profile:'refresh'},{profile:'encrypted'}]}));
+    await h.api.saveSnapshot(h.key,100,original,'testnet');h.api.dropWallet();
+    const result=await h.api.commands.rescan({mode,birthday:0,walletMode:profile,nodeUrl:'http://127.0.0.1:9797/'});
+    assert.equal(result.mode,mode);assert.equal(result.walletMode,profile);
+    const status=await h.api.status();assert.equal(status.fastPending,mode==='private'?null:mode);
+    assert.equal(h.settings.recoveryModes[profile],mode);
+    const snapshot=await h.api.latestSnapshot(h.key),state=JSON.parse(new TextDecoder().decode(snapshot.state));
+    if(mode==='private'){assert.equal(snapshot.height,0);assert.equal(state.expected.length,3);}
+    else {assert.equal(snapshot.height,100);assert.equal(state.coins.length,3);}
+    if(mode==='node')assert.equal(h.settings.servers.testnet.sync,'http://127.0.0.1:9797/');
+  }
+});
+
+test('encrypted receipt recovery is rejected outside Encrypted and stale wallet selections cannot start recovery',async()=>{
+  const h=await harness();
+  await assert.rejects(h.api.commands.rescan({encryptedOnly:true}),/only available/);
+  await assert.rejects(h.api.commands.rescan({walletMode:'refresh'}),/changed/);
+  await assert.rejects(h.api.commands.rescan({mode:'unknown'}),/Unknown recovery/);
+});
+
+test('seed restoration from explicit block zero preserves all three selected recovery modes',async()=>{
+  for(const restoreMode of ['fast','private','node']) {
+    const h=await harness();
+    await h.api.commands.create({password:'test-only-password',phrase:Array(18).fill('mock').join(' '),network:'main',birthday:0,restoreMode,nodeUrl:'http://127.0.0.1:9797/'});
+    const status=await h.api.status();assert.equal(status.restored,true);assert.equal(status.recoveryMode,restoreMode);assert.equal(status.fastPending,restoreMode==='private'?null:restoreMode);
+  }
+});
+
+test('indexed recovery at an existing tip rechecks seeded coins and saves the recovered state',async()=>{
+  const h=await harness();let seeded=false,freed=false;
+  h.light.FastRestore=class {
+    seedState(state){seeded=Boolean(state);this.state=state;this.asked=false;}
+    flagsRequest(){if(this.asked)return undefined;this.asked=true;return '{}';}
+    heightsToFetch(){return new Float64Array();}restoreChunks(){return 0;}snapshotHeight(){return 100;}
+    finish(){return {height:100,state:this.state,events:[]};}free(){freed=true;}
+  };
+  const {wallet}=await h.api.requireWallet(),snap=await h.api.latestSnapshot(h.key);
+  const out=await h.api.runFastRestore({key:h.key,wallet,s:h.settings,server:'https://example.invalid/',st:{fastPending:'fast',recoveryStart:0},snap});
+  assert.equal(out.height,100);assert.equal(seeded,true);assert.equal(freed,true);assert.equal((await h.api.status()).fastFailed,null);
+});
+
+test('an unavailable index falls back to genesis while retaining previously known receipts',async()=>{
+  const h=await harness();
+  const state=new TextEncoder().encode(JSON.stringify({height:100,watch:[],coins:[{profile:'refresh',id:'known-offchain'}]}));
+  await h.api.saveSnapshot(h.key,100,state,'main');
+  h.light.FastRestore=class {seedState(){}flagsRequest(){return '{}';}free(){}};
+  h.rpc.post=async()=>{throw Error('method unavailable');};
+  const {wallet}=await h.api.requireWallet(),snap=await h.api.latestSnapshot(h.key);
+  const out=await h.api.runFastRestore({key:h.key,wallet,s:h.settings,server:'https://example.invalid/',st:{fastPending:'fast',recoveryStart:0},snap});
+  assert.equal(out.height,0);assert.equal(JSON.parse(new TextDecoder().decode(out.state)).expected[0].id,'known-offchain');
+  assert.equal((await h.api.status()).fastFailed,'unsupported');assert.equal((await h.api.status()).fastPending,null);
+});
+
+test('payment-code recovery and waiting receipts stay in the selected sub-wallet',async()=>{
+  const h=await harness();h.settings.network='testnet';h.settings.createdWallets={standard:true,refresh:true,encrypted:true};h.settings.autoRefresh=true;h.settings.privateNotifications=true;
+  await h.api.saveSnapshot(h.key,100,new TextEncoder().encode(JSON.stringify({height:100,watch:[],expected:['standard','refresh','encrypted'].map(profile=>({profile,addition_record:profile}))})),'testnet');
+  for(const profile of ['standard','refresh','encrypted']) {
+    await h.api.commands.selectMode({mode:profile});
+    assert.deepEqual(Array.from((await h.api.commands.waiting()).list,c=>c.profile),[profile]);
+    assert.equal((await h.api.commands.claimCheck({text:profile})).profile,profile);
+    assert.equal((await h.api.commands.claimRegister({text:profile})).profile,profile);
+    const other=profile==='standard'?'refresh':'standard';
+    await assert.rejects(h.api.commands.claimCheck({text:other}),/another sub-wallet/);
+    await assert.rejects(h.api.commands.claimRemove({record:other}),/selected sub-wallet/);
+  }
+});
+
+test('viewing-key export uses current Standard or Auto-refresh addresses and cannot mislabel Encrypted',async()=>{
+  const h=await harness();h.vault.checkPassword=async()=>'';
+  assert.equal((await h.api.commands.viewingKeys({password:'test'})).profile,'standard');
+  h.settings.network='testnet';await h.api.saveSnapshot(h.key,100,new TextEncoder().encode(JSON.stringify({height:100,watch:[],receiveIndex:4})),'testnet');
+  await h.api.commands.createSubwallet({mode:'refresh'});
+  const keys=await h.api.commands.viewingKeys({password:'test'});assert.equal(keys.profile,'refresh');assert.equal(keys.index,4);
+  await h.api.commands.createSubwallet({mode:'encrypted'});await assert.rejects(h.api.commands.viewingKeys({password:'test'}),/not supported/);
+});
+
+test('Own node recovery updates Tor host rules before using a new node',async()=>{
+  const h=await harness();h.settings.tor=true;let proxy;
+  h.chrome.proxy={settings:{get:async()=>({levelOfControl:'controlled_by_this_extension'}),set:async config=>{proxy=config.value;}}};
+  await h.api.setTorState({state:'on'});
+  await h.api.configureRecoveryNode(h.settings,'main','https://owned-node.example/');
+  assert.equal(h.settings.servers.main.sync,'https://owned-node.example/');
+  assert.equal(proxy.mode,'pac_script');assert.equal(proxy.pacScript.mandatory,true);assert.ok(proxy.pacScript.data.includes('owned-node.example'));
+});
+
+test('recovery cannot forget reservations or interrupt an active outgoing payment in any sub-wallet',async()=>{
+  const h=await harness();await h.api.saveSend({id:'pending-proof',network:'main',walletMode:'refresh',status:'proving'});
+  await assert.rejects(h.api.commands.rescan({mode:'fast'}),/payment is still pending/);
+  assert.equal((await h.api.latestSnapshot(h.key)).height,100);
+  h.maps.sends.clear();
+  await h.api.saveSnapshot(h.key,100,new TextEncoder().encode(JSON.stringify({height:100,watch:[],coins:[{profile:'encrypted',reserved:true,spent_height:null}]})),'main');
+  await assert.rejects(h.api.commands.rescan({mode:'private'}),/payment is still pending/);
+  assert.equal((await h.api.latestSnapshot(h.key)).height,100);
+});
+
+test('a later scan start cannot hide already known receipts and fractional block heights are rejected',async()=>{
+  const h=await harness();
+  await h.api.saveSnapshot(h.key,100,new TextEncoder().encode(JSON.stringify({height:100,watch:[],coins:[{profile:'refresh',received_height:12}]})),'main');
+  const result=await h.api.commands.rescan({birthday:50,mode:'private'});
+  assert.equal(result.start,11);assert.equal((await h.api.latestSnapshot(h.key)).height,11);
+  await assert.rejects(h.api.commands.rescan({birthday:1.5}),/Not a block height/);
+  await assert.rejects(h.api.commands.rescan({birthday:9007199254740992}),/Not a block height/);
+});
+
+test('concurrent send requests create one active payment and recovery blocks new sends until caught up',async()=>{
+  const h=await harness();
+  const request={to:'nolga1mock',amount:'1',fee:'0.1',waitForFreshBlock:true};
+  const results=await Promise.allSettled([h.api.commands.send(request),h.api.commands.send(request)]);
+  assert.equal(results.filter(r=>r.status==='fulfilled').length,1);assert.equal(results.filter(r=>r.status==='rejected').length,1);assert.equal(h.maps.sends.size,1);
+  const recovering=await harness();await recovering.api.setStatus({height:50,tip:100,fastPending:'fast'});
+  await assert.rejects(recovering.api.commands.send(request),/recovery or syncing/);assert.equal(recovering.maps.sends.size,0);
+});
+
+
+test('phrase and viewing-key exports require an unlocked wallet throughout password verification',async()=>{
+  for(const command of ['revealPhrase','viewingKeys']) {
+    const h=await harness();let checks=0;
+    h.vault.checkPassword=async()=>{checks++;return 'mock phrase';};
+    h.vault.sessionKey=async()=>null;h.api.dropWallet();
+    await assert.rejects(h.api.commands[command]({password:'test'}),/locked/);assert.equal(checks,0);
+    h.vault.sessionKey=async()=>h.key;
+    h.vault.checkPassword=async()=>{h.vault.sessionKey=async()=>null;h.api.dropWallet();return 'mock phrase';};
+    await assert.rejects(h.api.commands[command]({password:'test'}),/locked/);
+  }
+});
+test('viewing-key export rejects a sub-wallet switch during password verification',async()=>{
+  const h=await harness();h.settings.createdWallets.refresh=true;h.settings.autoRefresh=true;
+  h.vault.checkPassword=async()=>{h.settings.activeMode='refresh';return 'mock phrase';};
+  await assert.rejects(h.api.commands.viewingKeys({password:'test'}),/changed/);
+});
+test('encrypted recovery-file export cannot finish after a lock or sub-wallet switch',async()=>{
+  for(const change of ['lock','mode']) {
+    const h=await harness();h.settings.network='testnet';await h.api.saveSnapshot(h.key,100,h.initial,'testnet');h.api.dropWallet();
+    await h.api.commands.createSubwallet({mode:'encrypted'});
+    h.vault.checkPassword=async()=>{if(change==='lock'){h.vault.sessionKey=async()=>null;h.api.dropWallet();}else h.settings.activeMode='standard';return Array(18).fill('mock').join(' ');};
+    await assert.rejects(h.api.commands.exportRecovery({password:'test-only-password'}),/locked|changed/);
+  }
+});
+
+async function uncertainPayment() {
+  const h=await harness();
+  const prepared=new TextEncoder().encode('exact prepared transaction');
+  const rec={id:'uncertain-send',network:'main',walletMode:'standard',status:'submitting',to:'nolga1mock',amount:'1',fee:'0.1',createdAt:Date.now(),attempt:1,jobCount:1,prepared:await h.vault.encrypt(h.key,prepared),view:{tx_id:'same-tx',amount:'1',fee:'0.1',change:'0',input_aocl_indices:[1]}};
+  await h.api.saveSend(rec);h.maps.proofs.set('uncertain-send:0','exact proof');
+  const {wallet}=await h.api.requireWallet();let reserves=0;
+  wallet.recordBroadcast=(state,p)=>{assert.equal(new TextDecoder().decode(p),'exact prepared transaction');reserves++;return state;};
+  return {...h,prepared,reserves:()=>reserves};
+}
+test('a lost broadcast response preserves the original payment and blocks new sends or recovery',async()=>{
+  const h=await uncertainPayment();
+  h.maps.kv.set('submit:uncertain-send',{ok:false,uncertain:true,error:'Failed to fetch'});
+  await h.api.handleSubmitted('uncertain-send');
+  const rec=await h.api.getSend('uncertain-send');assert.equal(rec.status,'uncertain');assert.ok(rec.prepared);assert.equal(h.reserves(),1);
+  assert.equal(h.maps.proofs.get('uncertain-send:0'),'exact proof');
+  const events=await h.api.readActivity(h.key);assert.equal(events.length,1);assert.equal(events[0].broadcastUncertain,true);
+  await h.api.expireOldSends(h.key,1000);assert.equal((await h.api.readActivity(h.key))[0].status,'pending');
+  await assert.rejects(h.api.commands.send({to:'nolga1mock',amount:'1',fee:'0.1'}),/still being sent/);
+  await assert.rejects(h.api.commands.rescan({mode:'private'}),/payment is still pending/);
+});
+test('a rejection after an uncertain upload cannot discard the original; acceptance resolves it once',async()=>{
+  const h=await uncertainPayment();
+  for(const result of [{ok:false,uncertain:true,error:'timeout'},{ok:false,error:'not confirmable'}]) {
+    h.maps.kv.set('submit:uncertain-send',result);await h.api.handleSubmitted('uncertain-send');
+    assert.equal((await h.api.getSend('uncertain-send')).status,'uncertain');assert.equal(h.maps.proofs.size,1);
+  }
+  assert.equal(h.reserves(),1);
+  h.maps.kv.set('submit:uncertain-send',{ok:true});await h.api.handleSubmitted('uncertain-send');
+  const rec=await h.api.getSend('uncertain-send');assert.equal(rec.status,'done');assert.equal(rec.prepared,undefined);assert.equal(h.maps.proofs.size,0);
+  const events=await h.api.readActivity(h.key);assert.equal(events.length,1);assert.equal(events[0].broadcastUncertain,false);
+  await assert.rejects(h.api.commands.retrySend({id:'uncertain-send'}),/Only a failed/);
+});
+test('chain confirmation resolves an uncertain payment without another upload',async()=>{
+  const h=await uncertainPayment();h.maps.kv.set('submit:uncertain-send',{ok:false,uncertain:true});await h.api.handleSubmitted('uncertain-send');
+  await h.api.recordBlockEvents(h.key,[{height:101,timestamp_ms:Date.now(),received:[],spent:[{aocl_index:1,tx_id:'same-tx',wallet_mode:'standard',amount:'1.1'}]}]);
+  await h.api.resumeSends();assert.equal((await h.api.getSend('uncertain-send')).status,'done');assert.equal(h.maps.proofs.size,0);
+});
+
+
+test('retrying an uncertain payment dispatches its exact original prepared transaction and proofs',async()=>{
+  const h=await uncertainPayment();h.maps.kv.set('submit:uncertain-send',{ok:false,uncertain:true});await h.api.handleSubmitted('uncertain-send');
+  const original=(await h.api.getSend('uncertain-send')).prepared;const sent=[];
+  h.vault.sessionKeyRaw=async()=>new Uint8Array(32);
+  h.chrome.offscreen={createDocument:async()=>{},closeDocument:async()=>{}};
+  h.chrome.runtime.sendMessage=async msg=>{if(msg.target==='offscreen')sent.push(msg);};
+  assert.equal(await h.api.commands.retrySend({id:'uncertain-send'}),'uncertain-send');
+  const after=await h.api.getSend('uncertain-send');assert.equal(after.status,'submitting');assert.equal(after.broadcastUncertain,true);
+  assert.equal(h.maps.sends.size,1);assert.deepEqual(after.prepared,original);assert.equal(h.maps.proofs.get('uncertain-send:0'),'exact proof');
+  assert.deepEqual(sent.map(s=>[s.type,s.sendId]),[['submit','uncertain-send']]);
+  await assert.rejects(h.api.commands.retrySend({id:'uncertain-send'}),/Only a failed/);
+});
+
+
+test('each sub-wallet remembers a separate asset-recovery method',async()=>{
+  const h=await harness();h.settings.network='testnet';await h.api.saveSnapshot(h.key,100,h.initial,'testnet');h.api.dropWallet();
+  h.settings.createdWallets={standard:true,refresh:true,encrypted:true};h.settings.autoRefresh=true;h.settings.privateNotifications=true;
+  for(const [profile,mode] of [['standard','fast'],['refresh','private'],['encrypted','node']]) {
+    await h.api.commands.selectMode({mode:profile});await h.api.commands.rescan({walletMode:profile,mode,nodeUrl:'http://127.0.0.1:9797/'});
+    assert.equal(h.settings.recoveryModes[profile],mode);
+  }
+  assert.equal(h.settings.recoveryModes.standard,'fast');assert.equal(h.settings.recoveryModes.refresh,'private');assert.equal(h.settings.recoveryModes.encrypted,'node');
+});
+test('sub-wallet indexed recovery explicitly scopes its flags and keeps other wallets during merge',async()=>{
+  const h=await harness();let selected;
+  h.light.FastRestore=class {
+    static forProfile(profile){selected=profile;return new this();}
+    seedState(state){this.state=state;this.asked=false;}flagsRequest(){if(this.asked)return undefined;this.asked=true;return '{}';}
+    heightsToFetch(){return [];}restoreChunks(){return 0;}snapshotHeight(){return 100;}
+    finish(){return {height:100,state:new TextEncoder().encode(JSON.stringify({height:100,watch:[],coins:[{profile:'standard',id:'new-standard'}]})),events:[]};}free(){}
+  };
+  await h.api.saveSnapshot(h.key,100,new TextEncoder().encode(JSON.stringify({height:100,watch:[],coins:[{profile:'refresh',id:'keep-private'}]})),'main');
+  const {wallet}=await h.api.requireWallet(),snap=await h.api.latestSnapshot(h.key);
+  const out=await h.api.runFastRestore({key:h.key,wallet,s:h.settings,server:'https://example.invalid/',st:{fastPending:'fast',recoveryWallet:'standard',recoveryStart:0},snap});
+  assert.equal(selected,'standard');assert.equal(JSON.parse(new TextDecoder().decode(out.state)).coins.find(c=>c.profile==='refresh').id,'keep-private');
+});
+
+
+test('payment codes register once and can be removed only from their own sub-wallet',async()=>{
+  const h=await harness();h.settings.network='testnet';h.settings.autoRefresh=true;h.settings.privateNotifications=true;h.settings.createdWallets={standard:true,refresh:true,encrypted:true};
+  await h.api.saveSnapshot(h.key,100,h.initial,'testnet');h.api.dropWallet();
+  for(const profile of ['standard','refresh','encrypted']) {
+    await h.api.commands.selectMode({mode:profile});const args={text:profile,walletMode:profile,networkContext:'testnet'};
+    assert.equal((await h.api.commands.claimCheck(args)).status,'new');assert.equal((await h.api.commands.claimRegister(args)).status,'new');
+    assert.equal((await h.api.commands.claimRegister(args)).status,'waiting');
+    assert.equal((await h.api.commands.waiting(args)).list.length,1);
+    await h.api.commands.claimRemove({record:profile,...args});assert.equal((await h.api.commands.waiting(args)).list.length,0);
+  }
+});
+test('payment-code actions reject stale wallet/network contexts and oversize input',async()=>{
+  const h=await harness();
+  for(const cmd of ['claimCheck','claimRegister','claimRemove','waiting']) {
+    await assert.rejects(h.api.commands[cmd]({text:'standard',record:'standard',walletMode:'refresh',networkContext:'main'}),/changed/);
+    await assert.rejects(h.api.commands[cmd]({text:'standard',record:'standard',walletMode:'standard',networkContext:'testnet'}),/changed/);
+  }
+  for(const text of ['', 'x'.repeat(65537), {}, null])await assert.rejects(h.api.commands.claimCheck({text}));
+});
+test('a queued payment-code registration cannot move to a different selected sub-wallet',async()=>{
+  const h=await harness();let release,queued;
+  const entered=new Promise(resolve=>{release=resolve;});let signalEntered;
+  const holding=new Promise(resolve=>{signalEntered=resolve;});
+  const hold=h.api.exclusive(async()=>{signalEntered();await entered;});await holding;
+  const arrived=new Promise(resolve=>{queued=resolve;});h.rpc.interrupt=()=>queued();
+  const register=h.api.commands.claimRegister({text:'standard',walletMode:'standard',networkContext:'main'});await arrived;
+  h.settings.createdWallets.refresh=true;h.settings.autoRefresh=true;h.settings.activeMode='refresh';release();await hold;
+  await assert.rejects(register,/changed/);
+  assert.equal((await h.api.commands.waiting()).list.length,0);
+});
+test('cancelling a queued code registration makes no wallet-state change',async()=>{
+  const h=await harness();await h.api.commands.cancelJob({jobId:'cancel-code'});
+  await assert.rejects(h.api.commands.claimRegister({text:'standard',jobId:'cancel-code'}),/CANCELLED/);
+  assert.equal((await h.api.commands.waiting()).list.length,0);
+});
+test('archive-adoption results cannot leak between sub-wallet waiting lists',async()=>{
+  const h=await harness();await h.api.setStatus({lastAdopted:{list:[{wallet_mode:'standard',amount:'1'},{wallet_mode:'refresh',amount:'2'},{wallet_mode:'encrypted',amount:'3'}]}});
+  assert.deepEqual(Array.from((await h.api.commands.waiting()).lastAdopted.list,c=>c.amount),['1']);
+  h.settings.createdWallets.refresh=true;h.settings.autoRefresh=true;h.settings.activeMode='refresh';assert.deepEqual(Array.from((await h.api.commands.waiting()).lastAdopted.list,c=>c.amount),['2']);
+});
+test('manual block scans preserve saved recovery choices and reject stale network context',async()=>{
+  const h=await harness();h.settings.recoveryModes={standard:'fast',refresh:'node',encrypted:'private'};
+  await assert.rejects(h.api.commands.rescan({mode:'private',networkContext:'testnet'}),/network changed/);
+  await h.api.commands.rescan({mode:'private',rememberMode:false,networkContext:'main'});
+  assert.equal(h.settings.recoveryModes.standard,'fast');assert.equal(h.settings.recoveryModes.refresh,'node');
+});
+test('premine search is limited to Standard and notification arithmetic keeps sub-pico NPT',async()=>{
+  const h=await harness();h.settings.createdWallets.refresh=true;h.settings.autoRefresh=true;h.settings.activeMode='refresh';await assert.rejects(h.api.commands.findPremine({}),/Standard/);
+  assert.equal(h.api.plus('1.0000000000001','0.0000000000002'),'1.0000000000003');
 });

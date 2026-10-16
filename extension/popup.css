@@ -1250,3 +1250,19 @@ body[data-wallet="encrypted"] #v-home .k-icon{color:#d899cc;background:#a4509133
 .address-history-view small{font-size:11px;color:var(--sub)}
 .address-history-view .mono{font-family:ui-monospace,monospace;font-size:10px;overflow-wrap:anywhere}
 #addressHistoryOpen,#encryptedRecoveryOpen{font-size:12px;padding:12px 16px}
+
+/* Balance refresh and compact recovery pages. */
+.balance-caption{display:inline-flex;align-items:center;gap:6px}
+.balance-refresh{display:inline-flex;align-items:center;justify-content:center;width:30px;height:30px;padding:5px;border:0;border-radius:50%;background:rgb(255 255 255 / .12);color:inherit;cursor:pointer;flex:none}
+.balance-refresh svg{width:16px;height:16px}.balance-refresh:hover{background:rgb(255 255 255 / .22)}
+.balance-refresh:disabled{opacity:.65;cursor:wait}.balance-refresh[aria-busy="true"] svg{animation:spin 1s linear infinite}
+.balance-refresh:focus-visible{outline:2px solid currentColor;outline-offset:2px}
+.wallet-context{align-self:center;color:var(--accent);font-size:12px;font-weight:600;padding:5px 12px;border-radius:99px;background:color-mix(in srgb,var(--accent) 12%,transparent);margin:0 0 4px}
+.recovery-links{display:grid;gap:8px}.recovery-link{display:flex;align-items:center;gap:12px;width:100%;padding:14px;border:1px solid var(--hair);border-radius:var(--r-m);background:var(--card);color:var(--text);text-align:start;cursor:pointer}
+.recovery-link>svg{width:19px;height:19px;flex:none;color:var(--accent)}.recovery-link>span{display:grid;gap:4px;flex:1}.recovery-link b{font-size:13px;font-weight:600}.recovery-link small{font-size:11px;color:var(--sub)}.recovery-link .chev{width:15px;color:var(--sub)}
+.count-badge{display:inline-flex;align-items:center;justify-content:center;min-width:22px;height:22px;padding:0 6px;margin-inline-start:8px;background:var(--card-2);color:var(--sub);border-radius:99px;font-size:11px;font-variant-numeric:tabular-nums}
+#claimWaitingPanel summary{display:flex;align-items:center}#claimText{overflow-wrap:anywhere;resize:vertical;font-size:12px}#claimStatus{max-width:100%;white-space:normal}
+@media(prefers-reduced-motion:reduce){.balance-refresh[aria-busy="true"] svg{animation:none}}
+#claimWaitingPanel>summary::after{content:"";margin-inline-start:auto;width:7px;height:7px;border:solid var(--sub);border-width:0 1.5px 1.5px 0;transform:rotate(45deg)}
+#claimWaitingPanel[open]>summary::after{transform:rotate(-135deg)}
+.claim-list li{flex-wrap:wrap}.code-remove-confirm{flex-basis:100%;padding-block-start:6px}.code-remove-confirm p{font-size:12px;line-height:1.5;color:var(--sub);margin:0 0 10px}.code-remove-confirm .btn{width:100%;min-height:36px}

@@ -1,0 +1,11 @@
+# 0.23.3-alpha.1 — payment recovery and balance refresh
+
+Available now has a labelled Refresh assets button with a busy indicator. It checks for new blocks and refreshes displayed assets without changing receiving addresses, starting a rescan or changing the selected recovery method. Repeated clicks share one request. Errors and stale replies cannot produce an “Assets updated” confirmation. Home responses from an earlier sub-wallet cannot overwrite the newly selected wallet.
+
+Recover assets now links to two small pages: Payment codes and More options. Payment codes offers Check code → Add payment, with a counted Waiting payments list and confirmation before removing a code. More options holds a known-block Private scan and Standard-only premine search. Manual scans keep the saved per-wallet recovery choice. Progress names the running method, and Find my assets is disabled during active recovery to avoid accidental restarts.
+
+Payment-code actions are bound to the reviewed wallet/network, recheck queued registrations, reject oversized inputs and invalidate review after edits. Leaving or locking clears code details and suppresses late replies. Ordinary code decoding preserves Bech32 case checks. Archive adoption preserves sub-wallet labels and uses bounded local key counters, avoiding reserved Generation indices expanding ordinary scan loops. Small-amount notification totals now keep 34 decimal places.
+
+Validation: 24 local core tests passed, one benchmark ignored; 78 JavaScript checks passed; 15 JS files, 472 popup DOM IDs, 26 screens and 321 static translation keys checked. Native CLI and WASM compilation passed. Browser tests used clearly labelled mock data; no real seed, payment or code was submitted. Details: [docs/BUG-REVIEW-0.23.3.md](docs/BUG-REVIEW-0.23.3.md).
+
+This remains an experimental source prototype. Fresh WASM binaries, installed-extension validation, live-node relay/mining and real proof acceptance are uncompleted. Consensus authentication still relies on the selected node, RPC response sizes remain uncapped, encrypted recipient privacy is unaudited and Encrypted stays testnet-only. See [docs/SECURITY.md](docs/SECURITY.md). GitHub Actions still skips light-core Rust unit tests; local core tests and JavaScript regression checks remain available. Build fresh modules using [docs/BUILD.md](docs/BUILD.md).

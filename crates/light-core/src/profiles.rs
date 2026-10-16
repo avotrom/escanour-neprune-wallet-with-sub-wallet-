@@ -92,6 +92,38 @@ pub fn filtered(state: &WalletState, profile: Profile) -> WalletState {
     st
 }
 
+/// Preserve other sub-wallets without requesting their owned-coin proofs.
+/// Their proofs are valid only at the same chain snapshot; otherwise the
+/// caller must replay blocks locally instead of carrying stale proofs forward.
+pub fn merge_recovered(
+    old: &WalletState,
+    recovered: &mut WalletState,
+    profile: Profile,
+) -> Result<()> {
+    ensure!(old.network == recovered.network, "recovery network changed");
+    let other = old
+        .utxos
+        .iter()
+        .filter(|u| profile_of(u.key) != profile)
+        .collect::<Vec<_>>();
+    if !other.is_empty() {
+        ensure!(
+            old.height == recovered.height
+                && old.tip_hash == recovered.tip_hash
+                && old.msa.hash() == recovered.msa.hash(),
+            "Other sub-wallet proofs need a local full scan to the new snapshot"
+        );
+    }
+    recovered.utxos.retain(|u| profile_of(u.key) == profile);
+    recovered.utxos.extend(other.into_iter().cloned());
+    recovered.next_generation_index = recovered
+        .next_generation_index
+        .max(old.next_generation_index);
+    recovered.next_symmetric_index = recovered.next_symmetric_index.max(old.next_symmetric_index);
+    recovered.next_ec_hybrid_index = recovered.next_ec_hybrid_index.max(old.next_ec_hybrid_index);
+    Ok(())
+}
+
 #[derive(Debug, Clone, Serialize, PartialEq, Eq)]
 pub struct AddressHistoryEntry {
     pub index: u64,

@@ -17,11 +17,9 @@ test('private sending/publishing requires explicit opt-in and rejects mainnet', 
   }
 });
 
-test('fresh test-network restores cannot skip anonymous envelopes via the address index', () => {
-  for (const network of ['testnet', 'testnet-mock']) {
-    for (const mode of ['fast', 'node', 'private']) assert.equal(notificationRestoreMode(network, mode), 'private');
-  }
-  for (const mode of ['fast', 'node', 'private']) assert.equal(notificationRestoreMode('main', mode), 'private');
+test('recovery preserves Fast, Private and Own node choices on every network', () => {
+  for (const network of ['main','testnet','testnet-mock']) for (const mode of ['fast','node','private']) assert.equal(notificationRestoreMode(network,mode),mode);
+  assert.throws(()=>notificationRestoreMode('testnet','unknown'),/Unknown recovery mode/);
 });
 
 test('experimental mode and recovery limitations are translated in all UI languages', () => {

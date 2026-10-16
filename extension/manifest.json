@@ -2,9 +2,9 @@
   "manifest_version": 3,
   "name": "Escanour Neptune Wallet",
   "short_name": "Escanour",
-  "version": "0.23.0",
+  "version": "0.23.3",
   "author": "avotrom",
-  "description": "Private light wallet for Neptune Cash. Syncs from public nodes without telling them which coins are yours; proves transactions on your device.",
+  "description": "Neptune light-wallet prototype with separate sub-wallets, local transaction proving and selectable asset-recovery methods.",
   "icons": {
     "16": "icons/icon16.png",
     "32": "icons/icon32.png",
@@ -51,5 +51,5 @@
   "side_panel": {
     "default_path": "popup.html?view=panel"
   },
-  "version_name": "0.23.0 three sub-wallet prototype"
+  "version_name": "0.23.3 payment recovery fixes prototype"
 }

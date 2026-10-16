@@ -106,6 +106,7 @@ async function submit(sendId, rawKey) {
   if (submitting === sendId || cancelled.has(sendId)) return;
   submitting = sendId;
   let result;
+  let requestStarted = false;
   try {
     const key = await importRawKey(new Uint8Array(rawKey));
     const rec = await db.get(db.STORES.sends, sendId);
@@ -122,12 +123,24 @@ async function submit(sendId, rawKey) {
     const server = serversFor(await loadSettings(), rec.network).broadcast;
     if (!server) throw new Error('No broadcast server is set for this network');
     const body = light.submitRequest(rpc.id(), prepared, proofs);
+    await rpc.assertRoute(server);
+    if (cancelled.has(sendId)) return;
+    // Persist uncertainty before upload: the page/browser can disappear after
+    // the node accepts the transaction but before its reply is saved.
+    await db.put(db.STORES.kv, `submit:${sendId}`, {
+      ok: false, uncertain: true, error: 'The broadcast response was not saved.', at: Date.now(),
+    });
+    if (cancelled.has(sendId)) {
+      await db.del(db.STORES.kv, `submit:${sendId}`);
+      return;
+    }
+    requestStarted = true;
     // Large bodies on slow connections: allow up to 10 minutes.
     const text = await rpc.post(server, body, { timeoutMs: 600_000 });
     const ok = light.parseSubmit(text);
     result = ok ? { ok: true, at: Date.now() } : { ok: false, error: 'The node did not accept the transaction', at: Date.now() };
   } catch (e) {
-    result = { ok: false, error: String(e?.message || e), at: Date.now() };
+    result = { ok: false, uncertain: requestStarted && e?.nodeRejected !== true, error: String(e?.message || e), at: Date.now() };
   } finally {
     submitting = null;
   }

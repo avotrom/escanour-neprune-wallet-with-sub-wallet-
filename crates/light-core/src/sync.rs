@@ -516,7 +516,7 @@ pub fn apply_block(
     Ok(ApplyOutcome::Applied(events, spends))
 }
 
-fn bump_indices(state: &mut WalletState, key: KeyRef) {
+pub(crate) fn bump_indices(state: &mut WalletState, key: KeyRef) {
     match key {
         KeyRef::Generation(i)
             if crate::profiles::profile_of(key) == crate::profiles::Profile::Standard

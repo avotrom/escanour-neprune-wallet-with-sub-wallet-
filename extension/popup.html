@@ -164,7 +164,7 @@
             </span>
           </label>
           <small class="hint" data-i18n="rm.fallback">If the server cannot do a fast restore, the wallet does the private full scan instead.</small>
-          <small class="hint" data-i18n="private.restore">Test networks always use a full scan in this experimental build so private app payments can be recovered. Start before your first payment.</small>
+          <small class="hint" data-i18n="assets.scope">Saved for this sub-wallet. Local block scans can update all balances.</small>
         </fieldset>
 
 
@@ -228,7 +228,7 @@
         <button id="modeHomeCard" class="mode-home-card"><span class="mode-home-top"><svg><use id="modeHomeIcon" href="#i-shield"/></svg><b id="modeHomeName"></b><span id="modeHomeStatus" class="private-nav-status"></span><svg class="chev"><use href="#i-chev"/></svg></span><small id="modeHomeHint"></small><span id="modeHomeAddress" class="mono"></span></button>
       <section class="wallet-overview">
       <section class="hero lefty">
-        <div class="balance-label"><span data-i18n="home.available">Available</span><button id="hideAssets" class="chip" aria-pressed="false" data-i18n="watch.hideAmounts">Hide amounts</button></div>
+        <div class="balance-label"><span class="balance-caption"><span data-i18n="home.available">Available</span><button id="refreshAssets" class="balance-refresh" data-i18n-aria="home.refreshAssets" aria-label="Refresh assets" title="Refresh assets"><svg aria-hidden="true"><use href="#i-change"/></svg></button></span><button id="hideAssets" class="chip" aria-pressed="false" data-i18n="watch.hideAmounts">Hide amounts</button></div>
         <p class="b-amount" aria-live="polite"><span id="balAvail">0</span><small>NPT</small></p>
         <p id="fiat" class="fiat" hidden><span id="fiatVal"></span></p>
         <!-- Shown only when something is not normal: syncing, a problem. -->
@@ -349,17 +349,17 @@
     <main id="v-mode-standard" class="screen sub" hidden>
       <header class="page-head"><button class="icon to-modes" data-i18n-aria="common.back" aria-label="Back"><svg><use href="#i-back"/></svg></button><h2 data-i18n="modes.standard"></h2><span class="icon-space"></span></header>
       <div class="pad stack"><div class="tor-hero feature-hero" data-state="on"><span class="tor-orb"><svg><use href="#i-card"/></svg></span><b data-i18n="modes.standard"></b><span id="generationHeroState" class="private-nav-status" data-state="on"></span><small data-i18n="modes.standardHint"></small></div>
-      <button class="btn primary use-mode" data-select-mode="standard" data-i18n="modes.open">Open wallet</button><details class="opts"><summary data-i18n="feature.details"></summary><p class="hint" data-i18n="modes.normalDetails"></p><button class="btn plain private-route" data-private-page="backup" data-i18n="backup.title"></button><button class="btn plain private-route" data-private-page="recovery" data-i18n="private.scanTitle"></button></details></div>
+      <button class="btn primary use-mode" data-select-mode="standard" data-i18n="modes.open">Open wallet</button><button class="btn soft" data-go="claim" data-i18n="assets.title">Recover assets</button><details class="opts"><summary data-i18n="feature.details"></summary><p class="hint" data-i18n="modes.normalDetails"></p></details></div>
     </main>
     <main id="v-mode-refresh" class="screen sub" hidden>
       <header class="page-head"><button class="icon to-modes" data-i18n-aria="common.back" aria-label="Back"><svg><use href="#i-back"/></svg></button><h2 data-i18n="modes.refresh"></h2><span class="icon-space"></span></header>
       <div class="pad stack"><div id="refreshHero" class="tor-hero feature-hero" data-state="off"><span class="tor-orb"><svg><use href="#i-change"/></svg></span><b data-i18n="modes.refresh"></b><span id="refreshHeroState" class="private-nav-status"></span><small data-i18n="modes.refreshHint"></small></div>
-      <button id="createRefreshWallet" class="btn primary create-subwallet" data-create-wallet="refresh" data-i18n="modes.create">Create sub-wallet</button><button id="useRefreshMode" class="btn primary use-mode" data-select-mode="refresh" data-i18n="modes.open" hidden></button><p id="refreshWalletError" class="err" role="alert"></p><details class="opts"><summary data-i18n="feature.details"></summary><p class="hint" data-i18n="modes.refreshDetails"></p><button class="btn plain private-route" data-private-page="backup" data-i18n="backup.title"></button><button class="btn plain private-route" data-private-page="recovery" data-i18n="private.scanTitle"></button></details></div>
+      <button id="createRefreshWallet" class="btn primary create-subwallet" data-create-wallet="refresh" data-i18n="modes.create">Create sub-wallet</button><button id="useRefreshMode" class="btn primary use-mode" data-select-mode="refresh" data-i18n="modes.open" hidden></button><button id="refreshAssetsOpen" class="btn soft" data-go="claim" data-i18n="assets.title" hidden>Recover assets</button><p id="refreshWalletError" class="err" role="alert"></p><details class="opts"><summary data-i18n="feature.details"></summary><p class="hint" data-i18n="modes.refreshDetails"></p></details></div>
     </main>
     <main id="v-private-payments" class="screen sub" hidden>
       <header class="page-head"><button class="icon to-private" data-i18n-aria="common.back" aria-label="Back"><svg><use href="#i-back"/></svg></button><h2 data-i18n="modes.encrypted">Encrypted</h2><span class="icon-space"></span></header>
       <div class="pad stack"><div class="tor-hero feature-hero" data-private-feature="payments" data-state="off"><span class="tor-orb"><svg><use href="#i-lock"/></svg></span><b data-i18n="feature.paymentsTitle"></b><span class="private-nav-status" role="status"></span><small data-i18n="feature.paymentsHint"></small><small id="privateState" role="status"></small></div>
-        <button id="createEncryptedWallet" class="btn primary create-subwallet" data-create-wallet="encrypted" data-i18n="modes.create">Create sub-wallet</button><p id="encryptedWalletError" class="err" role="alert"></p><button class="btn plain private-route" data-private-page="recovery" data-recovery-wallet="encrypted" data-i18n="recovery.encryptedTitle">Recover encrypted payments</button>
+        <button id="createEncryptedWallet" class="btn primary create-subwallet" data-create-wallet="encrypted" data-i18n="modes.create">Create sub-wallet</button><p id="encryptedWalletError" class="err" role="alert"></p><button id="encryptedAssetsOpen" class="btn soft" data-go="claim" data-i18n="assets.title" hidden>Recover assets</button><button id="encryptedDetailsRecovery" class="btn plain private-route" data-private-page="recovery" data-recovery-wallet="encrypted" data-i18n="recovery.encryptedTitle" hidden>Recover encrypted payments</button>
         <p id="privateDowngradeAlert" class="err" role="alert" hidden data-i18n="private.downgrade"></p><button id="useEncryptedMode" class="btn primary use-mode" data-select-mode="encrypted" data-i18n="modes.open"></button><div hidden><button id="privateSend"></button><button id="privateReceive"></button></div>
 <details class="opts feature-details"><summary data-i18n="feature.details">Details</summary><div class="stack"><p class="hint" data-i18n="modes.encryptedDetails"></p><p class="hint" data-i18n="private.warning"></p><p class="hint" data-i18n="private.explainer"></p><p class="hint" data-i18n="private.shared"></p><h3 data-i18n="private.addressPolicy"></h3><p class="hint" data-i18n="private.addressPolicyHint"></p><p class="hint" data-i18n="private.caveat"></p></div></details></div>
     </main>
@@ -460,7 +460,7 @@
           </button>
           <button class="row" data-go="claim">
             <span class="r-ic c5"><svg><use href="#i-inbox"/></svg></span>
-            <span class="row-text"><b class="row-b" data-i18n="claim.title">Register a payment</b><small data-i18n="claim.navHint"></small></span>
+            <span class="row-text"><b class="row-b" data-i18n="assets.title">Recover assets</b><small data-i18n="assets.navHint">Fast, Private scan or Own node</small></span>
             <svg class="chev"><use href="#i-chev"/></svg>
           </button>
           <button class="row" data-go="archive">
@@ -756,6 +756,7 @@
           <summary><svg><use href="#i-key"/></svg><span data-i18n="watch.mineTitle">Your viewing keys</span></summary>
           <div class="stack fold-body">
             <p class="hint small" data-i18n="watch.mineHint"></p>
+            <p id="vkScope" class="hint small"></p>
             <form id="vkForm" class="stack" autocomplete="off">
               <label class="field"><span data-i18n="phrase.enterPw">Enter your password</span><input id="vkPw" type="password" autocomplete="off" /></label>
               <p id="vkErr" class="err" role="alert"></p>
@@ -769,48 +770,59 @@
 
     <main id="v-claim" class="screen sub" hidden>
       <header class="page-head">
-        <button class="icon to-settings" data-i18n-aria="common.back" aria-label="Back"><svg><use href="#i-back"/></svg></button>
-        <h2 data-i18n="claim.title">Register a payment</h2>
+        <button id="assetRecoveryBack" class="icon" data-i18n-aria="common.back" aria-label="Back"><svg><use href="#i-back"/></svg></button>
+        <h2 data-i18n="assets.title">Recover assets</h2>
         <span class="icon-space"></span>
       </header>
       <div class="pad stack">
-        <p class="hint" data-i18n="claim.intro"></p>
-        <label class="field"><span data-i18n="claim.paste">Payment code</span>
-          <textarea id="claimText" rows="3" spellcheck="false" class="mono" data-i18n-ph="claim.pastePh"></textarea>
-        </label>
+        <div class="tor-hero"><span class="tor-orb"><svg><use href="#i-inbox"/></svg></span><b id="assetRecoveryWallet"></b><small data-i18n="assets.choose">Choose how to find your assets.</small></div>
+        <fieldset id="assetRecoveryModes" class="modes">
+          <label class="mode"><input type="radio" name="assetRecoveryMode" value="fast" checked /><span class="mode-body"><b data-i18n="rm.fast">Fast</b><span data-i18n="assets.fastHint">Uses the node’s index. The node learns which coins are yours.</span></span></label>
+          <label class="mode"><input type="radio" name="assetRecoveryMode" value="private" /><span class="mode-body"><b data-i18n="assets.private">Private scan</b><span data-i18n="assets.privateHint">Reads blocks locally. Takes longer; no address lookup is sent.</span></span></label>
+          <label class="mode"><input type="radio" name="assetRecoveryMode" value="node" /><span class="mode-body"><b data-i18n="assets.node">Own node</b><span data-i18n="assets.nodeHint">Uses your node’s index, with a full scan if unavailable.</span></span></label>
+        </fieldset>
+        <label id="assetNodeField" class="field" hidden><span data-i18n="node.url">Node address</span><input id="assetNodeUrl" type="url" value="http://127.0.0.1:9797/" spellcheck="false" dir="ltr" /></label>
+        <button id="assetRecover" class="btn primary" data-i18n="assets.start">Find my assets</button>
+        <div class="bar-track"><div id="assetRecoveryBar"></div></div><p id="assetRecoveryStatus" class="hint center" role="status"></p><p id="assetRecoveryError" class="err" role="alert"></p>
+        <p class="hint small" data-i18n="assets.scope">Saved for this sub-wallet. Local block scans can update all balances.</p>
+        <button id="assetEncryptedRecovery" class="btn soft" data-i18n="recovery.encryptedTitle" hidden>Encrypted address recovery</button>
+        <nav class="recovery-links" aria-label="Recovery options">
+          <button id="assetPaymentCodes" class="recovery-link"><svg aria-hidden="true"><use href="#i-inbox"/></svg><span><b data-i18n="codes.title">Payment codes</b><small data-i18n="codes.navHint">Add a code from the sender</small></span><svg class="chev" aria-hidden="true"><use href="#i-chev"/></svg></button>
+          <button id="assetMoreOptions" class="recovery-link"><svg aria-hidden="true"><use href="#i-sliders"/></svg><span><b data-i18n="codes.more">More options</b><small data-i18n="codes.moreHint">Scan from a known block</small></span><svg class="chev" aria-hidden="true"><use href="#i-chev"/></svg></button>
+        </nav>
+      </div>
+    </main>
+
+    <main id="v-payment-codes" class="screen sub" hidden>
+      <header class="page-head"><button id="paymentCodesBack" class="icon" data-i18n-aria="common.back" aria-label="Back"><svg><use href="#i-back"/></svg></button><h2 data-i18n="codes.title">Payment codes</h2><span class="icon-space"></span></header>
+      <div class="pad stack">
+        <p id="paymentCodeWallet" class="wallet-context"></p>
+        <p class="hint" data-i18n="codes.hint">Paste a payment code from the sender. Funds appear only after their block is verified.</p>
+        <label class="field"><span data-i18n="claim.paste">Payment code</span><textarea id="claimText" rows="4" maxlength="65536" spellcheck="false" autocapitalize="off" autocomplete="off" class="mono" data-i18n-ph="claim.pastePh"></textarea></label>
         <p id="claimErr" class="err" role="alert"></p>
-        <button id="claimRead" class="btn soft"><span data-i18n="claim.check">Read</span></button>
+        <button id="claimRead" class="btn primary" disabled><span data-i18n="codes.check">Check code</span></button>
         <div id="claimCard" class="claim-card" hidden>
-          <b id="claimAmount" class="claim-amt"></b>
-          <small id="claimLock"></small>
-          <small id="claimTo"></small>
-          <span id="claimStatus" class="claim-status"></span>
-          <button id="claimGo" class="btn primary"><span data-i18n="claim.register">Register</span></button>
-          <p id="claimWait" class="job-line" hidden></p>
-          <button id="claimCancel" class="btn plain" type="button" hidden><span data-i18n="job.cancel">Cancel</span></button>
+          <b id="claimAmount" class="claim-amt"></b><small id="claimLock"></small><small id="claimTo"></small><span id="claimStatus" class="claim-status" role="status"></span>
+          <button id="claimGo" class="btn primary"><span data-i18n="codes.add">Add payment</span></button><p id="claimWait" class="job-line" hidden></p><button id="claimCancel" class="btn plain" type="button" hidden><span data-i18n="job.cancel">Cancel</span></button>
         </div>
-
-        <h3 class="sub-h" data-i18n="claim.waitingTitle">Waiting for their block</h3>
-        <ul id="claimWaiting" class="claim-list"></ul>
+        <details id="claimWaitingPanel" class="opts"><summary><span data-i18n="codes.waiting">Waiting payments</span><span id="claimWaitingCount" class="count-badge">0</span></summary><div class="stack"><ul id="claimWaiting" class="claim-list"></ul></div></details>
         <p id="claimAdopted" class="hint small" hidden></p>
+      </div>
+    </main>
 
-        <h3 class="sub-h" data-i18n="claim.pastTitle">Confirmed before you registered it?</h3>
-        <p id="claimPast" class="hint small"></p>
-        <div class="rescan-row">
-          <input id="claimFrom" type="number" min="0" inputmode="numeric" dir="ltr" data-i18n-ph="claim.rescanFrom" />
-          <button id="claimRescan" class="btn soft"><span data-i18n="claim.rescanGo">Scan again</span></button>
-        </div>
-        <button id="claimRescanStart" class="btn plain"><span data-i18n="claim.rescanStart">From the beginning</span></button>
-
-        <h3 class="sub-h" data-i18n="claim.premineTitle">Premine allocation</h3>
-        <p class="hint small" data-i18n="claim.premineHint"></p>
-        <button id="claimPremine" class="btn soft"><span data-i18n="claim.premineGo">Look for premine coins</span></button>
-        <div id="premineProg" class="job-prog" hidden>
-          <div class="job-bar"><i id="premineBar"></i></div>
-          <p id="premineLine" class="job-line"></p>
-          <button id="premineCancel" class="btn plain" type="button"><span data-i18n="job.cancel">Cancel</span></button>
-        </div>
-        <p id="claimPremineOut" class="hint small center" hidden></p>
+    <main id="v-recovery-options" class="screen sub" hidden>
+      <header class="page-head"><button id="recoveryOptionsBack" class="icon" data-i18n-aria="common.back" aria-label="Back"><svg><use href="#i-back"/></svg></button><h2 data-i18n="codes.more">More options</h2><span class="icon-space"></span></header>
+      <div class="pad stack">
+        <p id="claimOptionsWallet" class="wallet-context"></p>
+        <h3 data-i18n="codes.scanTitle">Find an older payment</h3><p id="claimPast" class="hint"></p>
+        <label class="field"><span data-i18n="codes.block">First payment block</span><input id="claimFrom" type="number" min="0" step="1" inputmode="numeric" dir="ltr" data-i18n-ph="claim.rescanFrom" /></label>
+        <button id="claimRescan" class="btn primary" data-i18n="codes.scanBlock">Scan from this block</button><button id="claimRescanStart" class="btn soft" data-i18n="claim.rescanStart">From the beginning</button>
+        <p class="hint small" data-i18n="codes.scanHint">Uses a local Private scan. Your saved recovery method stays unchanged.</p><p id="claimOptionsError" class="err" role="alert"></p>
+        <details id="claimPreminePanel" class="opts"><summary data-i18n="claim.premineTitle">Premine allocation</summary><div class="stack">
+          <p class="hint small" data-i18n="claim.premineHint"></p><button id="claimPremine" class="btn soft" data-i18n="claim.premineGo">Look for premine coins</button>
+          <div id="premineProg" class="job-prog" hidden><div class="job-bar"><i id="premineBar"></i></div><p id="premineLine" class="job-line"></p><button id="premineCancel" class="btn plain" type="button" data-i18n="job.cancel">Cancel</button></div>
+          <p id="claimPremineOut" class="hint small center" hidden></p>
+        </div></details>
       </div>
     </main>
 

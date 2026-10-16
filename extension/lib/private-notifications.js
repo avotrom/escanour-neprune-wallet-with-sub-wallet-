@@ -15,10 +15,11 @@ export function requirePrivateNotifications(settings) {
   if (settings.privateNotifications !== true) throw new Error('Enable Encrypted receipt in Wallet modes first.');
 }
 
-/** The ordinary receiver-ID index cannot find custom envelopes. This build
- * always scans test-network restores in full, including on a fresh install. */
-export function notificationRestoreMode(network, requested) {
-  return 'private';
+/** Indexed recovery also queries the shared envelope format/version flags;
+ * it never uploads the scanning secret. Preserve the user's explicit choice. */
+export function notificationRestoreMode(network, requested = 'private') {
+  if (!['fast', 'node', 'private'].includes(requested)) throw new Error('Unknown recovery mode.');
+  return requested;
 }
 
 export function validatePrivateSend(settings, info, mode = 'auto', message = '') {

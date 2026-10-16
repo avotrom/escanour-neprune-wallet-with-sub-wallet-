@@ -4,18 +4,19 @@
 
 | Party | Learns | Does not learn |
 | --- | --- | --- |
-| Sync server | your IP; which block ranges you fetch, and when; your approximate wallet age from the first height you fetch | your addresses, keys, balance, which coins are yours, which coins you spend |
+| Full-scan sync server | your IP; requested block ranges and timing; approximate scan starting age | your seed, spending/scanning keys, and locally selected matches; a correlated broadcast can still link activity |
+| Fast/indexed recovery server | receiver-ID lookup requests for ordinary branches, shared encrypted-format flags, requested owned-coin proof/index sets and timing | seed and private scanning key; envelope decryption stays local |
 | Broadcast server | your IP; the transaction you submit (a ProofCollection: inputs as removal records, outputs as commitments, encrypted announcements) | amounts, addresses, who you pay |
 | Upgrader that raises your transaction to a SingleProof | the same public transaction data | anything secret: a ProofCollection is zero-knowledge |
 | CoinGecko (if a local currency is set) | your IP; that an NPT price was requested, about every 5 minutes while the popup is open | anything about your wallet |
-| Blockchain observers | that a transaction happened, its fee; with lustration, the amount of lustrated inputs | addresses, other amounts |
+| Blockchain observers | fees, timing, ordinary receiver identifiers (repeated IDs link payments), encrypted-format participation; lustrated input amounts when applicable | encrypted recipient messages and recovery data, assuming the unaudited cryptographic design holds |
 
 ### How to reduce what servers learn
 
 - **Use two different operators** for sync and broadcast (Settings).
 - **Run through Tor or a VPN** if your IP matters.
 - **When restoring,** give a birthday height rounded down (for example to a multiple of 10,000) so the start height does not pinpoint when the wallet was made.
-- **Optional fresh receiving addresses.** Enable Fresh receiving addresses in the Private controls page to rotate after confirmed receipts. Fixed addresses remain the default. An announcement's `receiver_identifier` is fixed per key, so reusing an address links all its payments on-chain.
+- **Optional fresh receiving addresses.** Create the Auto-refresh sub-wallet to advance its addresses after confirmed receipts. Fixed addresses remain the default. An announcement's `receiver_identifier` is fixed per key, so reusing an address links all its payments on-chain.
 
 ## Secrets and where they live
 
@@ -31,7 +32,7 @@
 
 | Threat | Status |
 | --- | --- |
-| Malicious server sends fake blocks | Caught by the hash-chain check and the accumulator check. A server can still lie about the chain tip (withhold blocks or serve a minority fork). Mitigation: compare tips across two servers (planned). |
+| Malicious server sends blocks | Continuity, commitments, ownership and accumulator checks catch inconsistent data. They do **not** authenticate consensus validity: block proofs, proof of work and canonical-chain selection are not independently verified. A malicious node can serve a fabricated internally consistent view. A trusted validating node remains necessary. Comparing tips alone would not close this gap. |
 | Malicious server withholds blocks | Payments can appear late; switch servers. |
 | Malware on the computer | Out of scope. It can read memory while unlocked, like with any software wallet. |
 | A web page attacks the extension | No content scripts, no web-accessible resources, no `externally_connectable`. Pages cannot talk to the extension. |
@@ -75,10 +76,26 @@
 
 Version 0.23 provides an optional Encrypted sub-wallet with a test-network wrapper for both Generation and EC Hybrid. It keeps the stable destination identifier inside a sealed box and suppresses the ordinary destination announcement. It is not an audited recipient-anonymity protocol and is disabled on mainnet at both UI/backend and Rust layers. The EC-based outer layer is not post-quantum private, including when the inner address is Generation.
 
-One scanning key is re-derived from the seed and network in Rust. Test-network block scanning continues even after the publishing/sending switch is disabled. Fast receiver-ID indexing cannot recover these notifications; seed restore uses a full scan. Existing ordinary viewing keys and watch-only registrations cannot discover them. A future separate private viewing-key export is not implemented.
+One scanning key is re-derived from the seed and network in Rust. Test-network block scanning continues even after the publishing/sending switch is disabled. Indexed recovery queries shared format/version flags for these notifications and decrypts locally. It still discloses owned coin index sets when requesting membership proofs. Private scan avoids receiver-ID and coin-index queries. Existing ordinary viewing keys and watch-only registrations cannot discover them. A future separate private viewing-key export is not implemented.
 
 A successful decryption is not a credit. The existing decoder checks the inner notification's ownership and type scripts, and normal sync requires its addition record in the block before creating a coin and membership proof. Valid envelopes replayed without the payment addition do not add funds. Malformed, foreign and unauthenticated envelopes are ignored.
 
 The marker and version are public, ciphertexts are fixed-size, and IP/timing information is outside the protection. Scanning-key compromise permits historical envelope decryption; the outer layer has no receiver-compromise forward secrecy. Review the complete protocol, concrete crypto dependencies and scanning performance before production. See [PRIVATE-NOTIFICATIONS.md](PRIVATE-NOTIFICATIONS.md) for the specification and remaining validation gate.
 
 The sub-wallet selector beside Tor creates Auto-refresh or Encrypted on request; only Standard exists by default. Privacy check is in Settings. Encrypted has a dedicated recovery page covering both address types. All sub-wallets share a recovery phrase but have separate coin selection and change. Encrypted children share a public scanning key, so complete addresses can be linked by their holders even when payment keys differ. No automatic mixing or self-sweep runs. A warning cannot undo past disclosure. The optional encrypted recovery file restores the seed, not local metadata, outgoing message copies or pending sends; its password is required unless the seed is preserved separately. See [SUB-WALLETS.md](SUB-WALLETS.md).
+
+## Security fixes in 0.23.2
+
+See [SECURITY-REVIEW-0.23.2.md](SECURITY-REVIEW-0.23.2.md) for findings, tests and open risks. RPC/price/Tor-check redirects are rejected; node URLs reject credentials and non-HTTP schemes. Saved Tor policy also applies when the session state is stale. These are source/harness checks, not proof of real Tor routing.
+
+Mutation requests are not automatically replayed after missing UI replies. A lost broadcast response becomes **Payment outcome unknown**, with the original prepared transaction and proofs retained. New payments and rescans stay blocked; **Resend original** sends the same transaction rather than allocating another payment. A later rejection does not erase prior uncertainty. Confirmation or a successful original-transaction reply clears this state. It does not automatically expire, so an unresolvable outcome can require manual node investigation. A selected node's acknowledgement is still trusted; this is not authenticated network-wide mempool status.
+
+Phrase/viewing-key fields clear when leaving the screen or locking. Late replies cannot refill them or trigger recovery-file downloads. Password-checked backend exports also recheck the wallet after asynchronous work. JavaScript strings and WASM memory cannot be guaranteed zeroed. Lock clears the session key and UI; an already authorized offscreen proof/upload task may retain its working key until that task ends.
+
+Encrypted recovery-file export appears only in Encrypted recovery Details, and the backend rejects exports from Standard/Auto-refresh. The file contains the **shared root phrase**, which controls all three sub-wallets, encrypted under the current wallet password. Menu placement does not create an isolated Encrypted-only seed. Seed-only restoration recovers confirmed compatible receipts by scanning; local labels, outgoing memo copies and pending off-chain state are not reconstructed by the phrase alone.
+
+Sub-wallet recovery methods are remembered independently. Fast/Own node asset recovery scopes indexed flags and coin proofs to the selected wallet. A stale snapshot for another wallet triggers local full scanning instead of uploading that wallet’s owned-coin lookups. Initial whole-seed restore retains an explicit root-wide method. The full block scan/node connection is shared.
+
+## Payment-code and UI fixes in 0.23.3
+
+See [BUG-REVIEW-0.23.3.md](BUG-REVIEW-0.23.3.md) for checked rules, fixed races and remaining concerns. Payment-code actions are bound to their reviewed profile/network and reject stale queued requests. Code imports are capped at 64 KiB. Hidden code details and late replies are cleared/ignored. Removing a waiting code requires confirmation; keep its original for re-import. Archive adoption preserves owning profiles and bounded key counters. This does not resolve the consensus-authentication or unbounded-RPC-response concerns above.

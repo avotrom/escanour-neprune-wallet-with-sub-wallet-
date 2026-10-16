@@ -201,15 +201,39 @@ impl Keys {
         &self,
         state: &crate::state::WalletState,
     ) -> Vec<(KeyRef, SpendingKey)> {
+        self.profile_scan_keys_for(
+            &state.utxos.iter().map(|u| u.key).collect::<Vec<_>>(),
+            state.next_symmetric_index,
+        )
+    }
+
+    /// Same branches for indexed recovery, before membership proofs exist.
+    pub(crate) fn profile_scan_keys_for(
+        &self,
+        known: &[KeyRef],
+        next_symmetric_index: u64,
+    ) -> Vec<(KeyRef, SpendingKey)> {
         use crate::profiles::{Profile, change_key, key_for, profile_of};
-        let mut refs = state
-            .utxos
+        let mut refs = known
             .iter()
-            .filter(|u| profile_of(u.key) != Profile::Standard)
-            .map(|u| u.key)
+            .copied()
+            .filter(|key| profile_of(*key) != Profile::Standard)
             .collect::<Vec<_>>();
         for kind in [AddressKind::Generation, AddressKind::EcHybrid] {
-            let next = crate::profiles::receive_index(state, Profile::Refresh, kind);
+            let next = known
+                .iter()
+                .copied()
+                .filter(|key| {
+                    profile_of(*key) == Profile::Refresh
+                        && matches!(
+                            (key, kind),
+                            (KeyRef::Generation(_), AddressKind::Generation)
+                                | (KeyRef::EcHybrid(_), AddressKind::EcHybrid)
+                        )
+                })
+                .map(crate::profiles::local_index)
+                .max()
+                .map_or(0, |i| i + 1);
             for i in 0..=next.saturating_add(KEY_LOOKAHEAD).min(MAX_PRIVATE_INDEX) {
                 refs.push(key_for(Profile::Refresh, kind, i).unwrap());
             }
@@ -218,7 +242,10 @@ impl Keys {
             if profile == Profile::Encrypted && self.network == Network::Main {
                 continue;
             }
-            for i in 0..state.next_symmetric_index + KEY_LOOKAHEAD {
+            for i in 0..next_symmetric_index
+                .saturating_add(KEY_LOOKAHEAD)
+                .min(MAX_PRIVATE_INDEX)
+            {
                 refs.push(change_key(profile, i).unwrap());
             }
         }

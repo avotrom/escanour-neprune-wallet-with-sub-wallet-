@@ -1,6 +1,6 @@
 # Three sub-wallets in one app
 
-Current design, 16 October 2026. This replaces the earlier shared-balance mode and payment-link proposals. The source prototype is 0.23.0-alpha.1, based on the supplied 0.21 ZIP and pinned Neptune commit `cc3fca93fa4410bc6f7ab8db7c2416dde33d7f04`.
+Current design, 16 October 2026. This replaces the earlier shared-balance mode and payment-link proposals. The source prototype is 0.23.3-alpha.1, based on the supplied 0.21 ZIP and pinned Neptune commit `cc3fca93fa4410bc6f7ab8db7c2416dde33d7f04`.
 
 | Sub-wallet | Created by default | Receiving addresses | Behavior |
 | --- | --- | --- | --- |
@@ -18,7 +18,7 @@ The charcoal background, translucent action buttons and soft address cards follo
 
 Auto-refresh's Previous addresses action opens its own page, with Generation and EC Hybrid tabs. The current address and prior paid addresses show their address number, current/previous label and confirmed payment count. Copy works directly from the list; opening a row shows that exact address and its QR, labelled Previous address · still valid when appropriate. History includes addresses whose coins have already been spent and is rebuilt from confirmed receipts during seed restoration. The list loads 20 addresses at a time.
 
-Encrypted's home opens a dedicated Encrypted address recovery page. It explicitly covers both Generation and EC Hybrid encrypted receipt addresses, confirmed funds and received messages. It offers Scan for encrypted receipts with progress, Restore with recovery phrase, and an optional encrypted seed-only file under Details. A block starting point is optional and must precede the first receipt across all three sub-wallets. Restoration replaces the local root wallet; it does not create a second independent seed.
+Every sub-wallet offers Recover assets with Fast, Private scan and Own node. Encrypted's home also opens a dedicated Encrypted address recovery page; this separate page is available only in Encrypted. It explicitly covers both Generation and EC Hybrid encrypted receipt addresses, confirmed funds and received messages. It offers Scan for encrypted receipts with progress, Restore with recovery phrase, and an optional encrypted seed-only file under Details. A block starting point is optional and must precede the first receipt across all three sub-wallets. Restoration replaces the local root wallet; it does not create a second independent seed.
 
 No permanent payment URL, address-distribution service, hosted address pool or extra HTTP endpoint is part of this implementation. Auto-refresh is local, after confirmation. Two people paying before confirmation can receive the same displayed address. Previously shared addresses continue to receive funds; a wallet cannot force a payer to forget them. Opening Receive repeatedly does not advance unused indices.
 
@@ -36,9 +36,9 @@ Transfers between sub-wallets are explicit payments and can create public timing
 
 Create only publishes an optional sub-wallet when the user requests it. The seed can already derive its keys mathematically. Background scanning checks compatible branches so seed restoration can rediscover previously funded optional sub-wallets, even without a settings file. Once funds are found, the optional wallet reappears. An unused, empty optional wallet can simply be created again and derives the same addresses.
 
-Use this compatible app, the same seed and network, and scan from genesis or before the first wallet payment. The source prototype forces block scanning for restoration rather than the ordinary fixed-receiver index, which cannot recover these branches and custom envelopes reliably. Choosing an owned node still sets that node as the block source. Starting later than the first receipt can omit funds.
+Use this compatible app, the same seed and network, and scan from genesis or before the first wallet payment. Each sub-wallet remembers its own asset-recovery method. Standard defaults to Fast; Auto-refresh and Encrypted default to Private scan. All three can choose Fast, Private scan or Own node. Indexed sub-wallet recovery scopes address flags and owned-coin proofs to that wallet. Other coins survive the merge only at an identical snapshot; otherwise a local full scan refreshes them. The local block scan and network node connection remain shared; a whole-seed restore uses its explicitly selected root recovery method. Fast and Own node use receiver-ID lookups for ordinary branches plus shared format/version flags for encrypted envelopes, which are decrypted locally. Private scan reads all relevant blocks instead. An unsupported index, potentially capped response (10,000 heights), or incomplete key-discovery round falls back to full scanning. The node can omit indexed results; Fast is not a completeness guarantee. Choosing an owned node still sets that node as the block source. Starting later than the first receipt can omit funds.
 
-The seed restores confirmed coins, receiving keys and received encrypted messages that are on-chain. It does not restore local contact names, local notes, outgoing recipient-message copies, unfinished sends or preferences. The optional password-encrypted recovery file is a seed-only alternative; it is not required for confirmed funds. It does not back up all local metadata.
+The seed and sufficient chain data restore confirmed coins, receiving keys and received encrypted messages that are on-chain. Off-chain-only payment codes must be supplied again on a fresh installation. Existing known receipts survive rescans; premine allocations are rebuilt from genesis, and newly discovered miner rewards need a full scan. It does not restore local contact names, local notes, outgoing recipient-message copies, unfinished sends or preferences. The optional password-encrypted recovery file is a seed-only alternative; it is not required for confirmed funds. It does not back up all local metadata.
 
 Auto-refresh starts at child zero in each address type and advances only after observing a confirmed receipt. Scanning retains the receiving range from child zero through the next address plus a 20-key lookahead, including earlier unused children. This keeps late payments discoverable when a later child was paid first. It does not create arbitrary unused gaps. Encrypted v3 carries the receiving kind and child index inside its authenticated envelope and derives the exact key after opening it, with one outer scanning key.
 
@@ -62,4 +62,14 @@ Encrypted envelopes share a format marker but have no fixed external receiver ID
 
 A block-height/date starting point reduces work only if it includes all earlier payments. An owned Neptune node improves control over network metadata but does not remove local trial decryption. A server can mirror all shared-marker announcements, but trusting a filtered result can miss payments unless completeness is authenticated. Uploading a scanning key would let that server discover receipts and messages. Recipient-specific stable public tags would restore fast lookup while reintroducing linking. Those tradeoffs are not silently enabled.
 
+See [BUG-REVIEW-0.23.1.md](BUG-REVIEW-0.23.1.md) for the recovery fixes and broader bug review.
+
 Production work remains: live-node relay/mining and real proof verification; release WASM installation; independent cryptographic review; reorg/restore stress tests for all accounts; browser/WASM and adversarial-envelope load measurements; durable work scheduling for large scans. No real funds were used during these checks.
+
+### Security fixes (0.23.2)
+
+Encrypted recovery-file export is available only in Encrypted → Encrypted address recovery → Details. Standard and Auto-refresh retain the common Recover assets choices without that export. The optional file backs up the root phrase shared by all three wallets. See [SECURITY-REVIEW-0.23.2.md](SECURITY-REVIEW-0.23.2.md) for lock/export guards, broadcast uncertainty and remaining node-trust limitations.
+
+### Payment recovery (0.23.3)
+
+Available → Refresh assets checks for recent chain updates. It does not rotate the address or reset recovery. Recover assets → Payment codes checks and adds a sender’s code, with a separate counted waiting list. More options contains an optional known-block Private scan; this does not change the wallet’s saved recovery method. Premine search belongs only to Standard. See [BUG-REVIEW-0.23.3.md](BUG-REVIEW-0.23.3.md).

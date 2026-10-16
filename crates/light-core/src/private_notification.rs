@@ -428,6 +428,149 @@ mod tests {
         seal_notification(&address(keys), &text, keys.network()).unwrap()
     }
 
+    /// Simulate the unchanged node's public flag index and proof responses,
+    /// then verify the same balances as full scanning, without a scan secret
+    /// ever appearing in an RPC request.
+    fn indexed_recover(
+        k: &Keys,
+        expected: &WalletState,
+        blocks: &[Block],
+        seeded: bool,
+    ) -> (WalletState, Vec<sync::BlockEvents>) {
+        indexed_recover_scoped(k, expected, blocks, seeded, None)
+    }
+
+    fn indexed_recover_scoped(
+        k: &Keys,
+        expected: &WalletState,
+        blocks: &[Block],
+        seeded: bool,
+        profile: Option<crate::profiles::Profile>,
+    ) -> (WalletState, Vec<sync::BlockEvents>) {
+        use neptune_mutator_set::ms_membership_proof::{
+            IndexedAoclAuthPath, MsMembershipProofPrivacyPreserving,
+        };
+        use neptune_rpc_api::model::message::{
+            BlockHeightsByFlagsRequest, BlockHeightsByFlagsResponse, GetBlocksResponse,
+            RestoreMembershipProofResponse,
+        };
+        use neptune_rpc_api::model::wallet::mutator_set::{
+            RpcMsMembershipProofPrivacyPreserving, RpcMsMembershipSnapshot,
+        };
+        use neptune_wallet::twenty_first::util_types::mmr::mmr_trait::Mmr;
+        let body = |b: &Block| {
+            serde_json::json!({"result":GetBlocksResponse{blocks:vec![RpcWalletBlock::from(b)]}})
+                .to_string()
+        };
+        let mut fr = profile
+            .map(crate::fast::FastRestore::for_profile)
+            .unwrap_or_default();
+        if seeded {
+            fr.seed_state(expected);
+        }
+        let mut rounds = 0;
+        while let Some(request) = fr.flags_request(k, 1).unwrap() {
+            rounds += 1;
+            assert!(rounds < 10);
+            let value: serde_json::Value = serde_json::from_str(&request).unwrap();
+            let params: BlockHeightsByFlagsRequest =
+                serde_json::from_value(value["params"].clone()).unwrap();
+            for version in 1..=3 {
+                assert_eq!(
+                    params
+                        .announcement_flags
+                        .iter()
+                        .any(|f| f.flag.value() == MARKER && f.receiver_id.value() == version),
+                    profile.is_none_or(|p| p == crate::profiles::Profile::Encrypted)
+                );
+            }
+            let flagged = blocks
+                .iter()
+                .filter(|b| {
+                    b.kernel
+                        .body
+                        .transaction_kernel
+                        .announcements
+                        .iter()
+                        .any(|a| {
+                            a.message.len() >= 2
+                                && params.announcement_flags.iter().any(|f| {
+                                    f.flag == a.message[0] && f.receiver_id == a.message[1]
+                                })
+                        })
+                })
+                .collect::<Vec<_>>();
+            let response=serde_json::json!({"result":BlockHeightsByFlagsResponse{block_heights:flagged.iter().map(|b|b.kernel.header.height.into()).collect()}}).to_string();
+            for height in fr.heights_to_fetch(&response).unwrap() {
+                let block = blocks
+                    .iter()
+                    .find(|b| u64::from(b.kernel.header.height) == height)
+                    .unwrap();
+                fr.scan_blocks(k, &body(block)).unwrap();
+            }
+        }
+        assert_eq!(fr.progress().coins_found, expected.utxos.len());
+        let mut coins = expected.utxos.iter().collect::<Vec<_>>();
+        coins.sort_by_key(|u| u.aocl_index());
+        let proofs = coins
+            .iter()
+            .map(|u| {
+                let mut p = u.membership_proof.clone();
+                // The wallet stops updating a spent coin's proof; a node's
+                // restore response instead supplies its CURRENT AOCL path.
+                if let Some(spent_height) = u.spent_height {
+                    let spent_block = blocks
+                        .iter()
+                        .find(|b| u64::from(b.kernel.header.height) == spent_height)
+                        .unwrap();
+                    let mut msa =
+                        sync::state_from_block(RpcWalletBlock::from(spent_block), k.network())
+                            .unwrap()
+                            .msa;
+                    for block in blocks
+                        .iter()
+                        .filter(|b| u64::from(b.kernel.header.height) > spent_height)
+                    {
+                        for addition in block
+                            .kernel
+                            .mutator_set_update(block.hash(), k.network())
+                            .unwrap()
+                            .additions
+                        {
+                            p.auth_path_aocl.update_from_append(
+                                p.aocl_leaf_index,
+                                msa.aocl.num_leafs(),
+                                addition.canonical_commitment,
+                                &msa.aocl.peaks(),
+                            );
+                            msa.add(&addition);
+                        }
+                    }
+                }
+                RpcMsMembershipProofPrivacyPreserving::from(MsMembershipProofPrivacyPreserving {
+                    aocl_auth_paths: vec![IndexedAoclAuthPath {
+                        leaf_index: p.aocl_leaf_index,
+                        auth_path: p.auth_path_aocl.clone(),
+                    }],
+                    target_chunks: p.target_chunks.clone(),
+                })
+            })
+            .collect();
+        let response=serde_json::json!({"result":RestoreMembershipProofResponse{snapshot:RpcMsMembershipSnapshot{synced_height:BFieldElement::new(expected.height),synced_hash:expected.tip_hash,synced_mutator_set:(&expected.msa).into(),membership_proofs:proofs}}}).to_string();
+        assert_eq!(fr.restore_chunks(), 1);
+        fr.apply_restore(0, &response).unwrap_or_else(|e| {
+            panic!(
+                "indexed proof at height {}, seeded {}: {e}",
+                expected.height, seeded
+            )
+        });
+        for block in blocks {
+            fr.scan_spends(k.network(), &body(block)).unwrap();
+        }
+        fr.finish(k.network(), &body(blocks.last().unwrap()))
+            .unwrap()
+    }
+
     #[tokio::test]
     async fn three_subwallets_recover_both_address_types_and_keep_change_and_spending_separate() {
         use crate::keys::AddressKind;
@@ -442,6 +585,7 @@ mod tests {
         let mut recovered = claim::genesis_state(&restored).unwrap();
         let mut outputs = vec![];
         let mut notices = vec![];
+        let mut payment_codes = vec![];
         let mut addresses = std::collections::HashSet::new();
         for (profile, amounts) in [
             (Profile::Standard, [2, 2]),
@@ -454,6 +598,19 @@ mod tests {
             {
                 let key = key_for(profile, kind, 0).unwrap();
                 assert_eq!(profile_of(key), profile);
+                let manual = TxOutput::offchain_native_currency(
+                    Amount::coins(amount),
+                    Digest::default(),
+                    receiver.address(key),
+                    false,
+                );
+                payment_codes.push(manual.offchain_notification(net).unwrap().0);
+                assert_eq!(
+                    claim::decode_notification(payment_codes.last().unwrap(), &receiver, &state)
+                        .unwrap()
+                        .key,
+                    key
+                );
                 assert!(addresses.insert(receiver.address(key).to_bech32m(net).unwrap()));
                 let out = if profile == Profile::Encrypted {
                     TxOutput::offchain_native_currency(
@@ -502,6 +659,43 @@ mod tests {
         let events = apply(&mut state, &receiver, &block);
         apply(&mut recovered, &restored, &block);
         assert_eq!(events.received.len(), 6);
+        // Manual payment codes can adopt all six branches from a local archive
+        // without attributing optional-wallet receipts to Standard or expanding
+        // a normal scan counter into the reserved sub-wallet key space.
+        let mut archive = crate::archive::Archive::new(net).unwrap();
+        archive.apply_block(RpcWalletBlock::from(&block)).unwrap();
+        let mut coded = sync::state_from_block(RpcWalletBlock::from(&block), net).unwrap();
+        for code in &payment_codes {
+            let receipt = claim::decode_notification(code, &receiver, &coded).unwrap();
+            assert_eq!(
+                claim::register(&mut coded, receipt.clone()),
+                claim::ClaimStatus::New
+            );
+            assert_eq!(
+                claim::register(&mut coded, receipt),
+                claim::ClaimStatus::Waiting
+            );
+        }
+        let adopted = claim::adopt_from_archive(&mut coded, &archive, vec![]).unwrap();
+        assert_eq!(adopted.len(), 6);
+        assert!(coded.expected.is_empty());
+        assert_eq!(coded.next_generation_index, 1);
+        assert_eq!(coded.next_ec_hybrid_index, 1);
+        for p in [Profile::Standard, Profile::Refresh, Profile::Encrypted] {
+            assert_eq!(
+                adopted.iter().filter(|u| u.wallet_mode == p.name()).count(),
+                2
+            );
+            assert_eq!(filtered(&coded, p).utxos.len(), 2);
+        }
+        for code in &payment_codes {
+            let receipt = claim::decode_notification(code, &receiver, &coded).unwrap();
+            assert_eq!(
+                claim::register(&mut coded, receipt),
+                claim::ClaimStatus::Owned
+            );
+        }
+        assert_eq!(coded.utxos.len(), 6);
         for profile in [Profile::Standard, Profile::Refresh, Profile::Encrypted] {
             for kind in [AddressKind::Generation, AddressKind::EcHybrid] {
                 let history = crate::profiles::address_history(&recovered, profile, kind);
@@ -524,6 +718,46 @@ mod tests {
         assert_eq!(balance(&recovered, Profile::Standard), Amount::coins(4));
         assert_eq!(balance(&recovered, Profile::Refresh), Amount::coins(7));
         assert_eq!(balance(&recovered, Profile::Encrypted), Amount::coins(11));
+        let mut chain = vec![block.clone()];
+        let (indexed, indexed_events) = indexed_recover(&restored, &recovered, &chain, false);
+        for profile in [Profile::Standard, Profile::Refresh, Profile::Encrypted] {
+            assert_eq!(balance(&indexed, profile), balance(&recovered, profile));
+        }
+        // Each sub-wallet's index requests, seeded proofs and recovered coins
+        // stay scoped even when the root already knows coins from all three.
+        for profile in [Profile::Standard, Profile::Refresh, Profile::Encrypted] {
+            let scoped_expected = filtered(&recovered, profile);
+            let mut seeded = crate::fast::FastRestore::for_profile(profile);
+            seeded.seed_state(&recovered);
+            assert_eq!(seeded.progress().coins_found, scoped_expected.utxos.len());
+            let (mut scoped, events) =
+                indexed_recover_scoped(&restored, &scoped_expected, &chain, false, Some(profile));
+            assert_eq!(balance(&scoped, profile), balance(&recovered, profile));
+            assert!(scoped.utxos.iter().all(|u| profile_of(u.key) == profile));
+            assert!(
+                events
+                    .iter()
+                    .flat_map(|e| &e.received)
+                    .all(|u| u.wallet_mode == profile.name())
+            );
+            crate::profiles::merge_recovered(&recovered, &mut scoped, profile).unwrap();
+            assert_eq!(scoped.utxos.len(), recovered.utxos.len());
+            let mut wrong_tip = scoped.clone();
+            wrong_tip.height += 1;
+            assert!(crate::profiles::merge_recovered(&recovered, &mut wrong_tip, profile).is_err());
+        }
+        assert_eq!(
+            indexed_events
+                .iter()
+                .flat_map(|e| &e.received)
+                .filter(|u| u.private_message.as_deref().is_some_and(|m| m.len() == 512))
+                .count(),
+            2
+        );
+        // Rescans carry already-known receipts even without new public notices.
+        let mut restarted = claim::genesis_state(&restored).unwrap();
+        claim::carry_known_receipts(&recovered, &mut restarted);
+        assert_eq!(restarted.expected.len(), 6);
         let ordinary = other.address_string(AddressKind::EcHybrid, 0).unwrap();
         fn request(profile: Profile, to: &str, amount: u32, now: u64) -> send::SendRequest<'_> {
             send::SendRequest {
@@ -588,12 +822,15 @@ mod tests {
                     .modify(next.kernel.body.transaction_kernel.clone()),
             );
             attach(&mut next, kernel.announcements.clone());
-            next.fix_mutator_set_fields(&block);
+            finish_mock_inputs(&mut next, &block, net);
             apply(&mut state, &receiver, &next);
             apply(&mut recovered, &restored, &next);
             block = next;
+            chain.push(block.clone());
         }
         let final_now = Timestamp::millis(block.kernel.header.timestamp.to_millis() + 1000);
+        let (indexed, _) = indexed_recover(&restored, &recovered, &chain, false);
+        let (seeded, _) = indexed_recover(&restored, &recovered, &chain, true);
         for (profile, amount) in [
             (Profile::Standard, 4),
             (Profile::Refresh, 5),
@@ -601,6 +838,14 @@ mod tests {
         ] {
             assert_eq!(
                 filtered(&recovered, profile).balance(final_now).available,
+                Amount::coins(amount)
+            );
+            assert_eq!(
+                filtered(&indexed, profile).balance(final_now).available,
+                Amount::coins(amount)
+            );
+            assert_eq!(
+                filtered(&seeded, profile).balance(final_now).available,
                 Amount::coins(amount)
             );
         }
@@ -815,6 +1060,32 @@ mod tests {
         block.set_transaction_kernel(kernel);
     }
 
+    /// Transactions carry unpacked removals; actual BLOCKS carry packed
+    /// removal lists. The upstream fixture helper updates an unpacked list,
+    /// so pack only after its accumulator fields have been fixed.
+    fn finish_mock_inputs(block: &mut Block, previous: &Block, network: Network) {
+        use neptune_mutator_set::removal_record::removal_record_list::RemovalRecordList;
+        let inputs = block.kernel.body.transaction_kernel.inputs.clone();
+        block.fix_mutator_set_fields(previous);
+        let rule = neptune_consensus::consensus_rule_set::ConsensusRuleSet::infer_from(
+            network,
+            block.kernel.header.height,
+        );
+        let packed = RemovalRecordList::pack(inputs.clone(), rule.allow_big_chunks());
+        let kernel = TransactionKernelModifier::default()
+            .inputs(packed)
+            .modify(block.kernel.body.transaction_kernel.clone());
+        block.set_transaction_kernel(kernel);
+        assert_eq!(
+            block
+                .kernel
+                .mutator_set_update(block.hash(), network)
+                .unwrap()
+                .removals,
+            inputs
+        );
+    }
+
     fn apply(st: &mut WalletState, k: &Keys, block: &Block) -> sync::BlockEvents {
         match sync::apply_block(st, k, RpcWalletBlock::from(block)).unwrap() {
             sync::ApplyOutcome::Applied(events, _) => events,
@@ -910,7 +1181,7 @@ mod tests {
             .modify(pay_block.kernel.body.transaction_kernel.clone());
         pay_block.set_transaction_kernel(modified);
         attach(&mut pay_block, kernel.announcements.clone());
-        pay_block.fix_mutator_set_fields(&fund_block);
+        finish_mock_inputs(&mut pay_block, &fund_block, net);
         apply(&mut sender_st, &sender, &pay_block);
         let receipt = apply(&mut receiver_st, &receiver, &pay_block);
         assert_eq!(
@@ -936,7 +1207,7 @@ mod tests {
             .modify(spend_block.kernel.body.transaction_kernel.clone());
         spend_block.set_transaction_kernel(modified);
         attach(&mut spend_block, spend_kernel.announcements.clone());
-        spend_block.fix_mutator_set_fields(&pay_block);
+        finish_mock_inputs(&mut spend_block, &pay_block, net);
         apply(&mut receiver_st, &receiver, &spend_block);
         assert!(receiver_st.utxos[0].spent_height.is_some());
         // A valid envelope replayed without its addition must create no coin.
@@ -1007,6 +1278,16 @@ mod tests {
             );
             assert_eq!(events.received[0].private_message.is_some(), both);
             assert_eq!(st.utxos.len(), 1);
+            let (indexed, indexed_events) = indexed_recover(&receiver, &st, &[block], false);
+            assert_eq!(indexed.utxos.len(), 1);
+            assert_eq!(
+                indexed_events[0].received[0].address_kind.as_deref(),
+                Some("private-unprotected")
+            );
+            assert_eq!(
+                indexed_events[0].received[0].private_message.is_some(),
+                both
+            );
         }
     }
 

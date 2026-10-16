@@ -197,18 +197,18 @@ function notify(type, extra = {}) {
 
 // -------------------------------------------------------- notifications ----
 
-const SCALE = 12n;
+const SCALE = 34n;
 function toUnits(a) {
   const str = String(a ?? '0').trim();
   const neg = str.startsWith('-');
   const [i, f = ''] = str.replace(/^-/, '').split('.');
-  const v = BigInt(i || '0') * 10n ** SCALE + BigInt((f + '0'.repeat(12)).slice(0, 12) || '0');
+  const v = BigInt(i || '0') * 10n ** SCALE + BigInt((f + '0'.repeat(Number(SCALE))).slice(0, Number(SCALE)) || '0');
   return neg ? -v : v;
 }
 function fromUnits(v) {
   const neg = v < 0n;
   const a = neg ? -v : v;
-  const f = (a % 10n ** SCALE).toString().padStart(12, '0').replace(/0+$/, '');
+  const f = (a % 10n ** SCALE).toString().padStart(Number(SCALE), '0').replace(/0+$/, '');
   return `${neg ? '-' : ''}${a / 10n ** SCALE}${f ? `.${f}` : ''}`;
 }
 const amt = (a) => fromUnits(toUnits(a));
@@ -372,7 +372,7 @@ async function expireOldSends(key, height) {
   const list = await readActivity(key);
   let changed = false;
   for (const e of list) {
-    if (e.kind === 'sent' && e.status === 'pending' && e.atHeight != null && height - e.atHeight >= STALE_RESERVATION_BLOCKS) {
+    if (e.kind === 'sent' && e.status === 'pending' && !e.broadcastUncertain && e.atHeight != null && height - e.atHeight >= STALE_RESERVATION_BLOCKS) {
       e.status = 'expired';
       changed = true;
     }
@@ -508,7 +508,7 @@ async function checkTor() {
   const port = Number(s.torPort) || 9150;
   await setTorState({ state: 'connecting', port, at: Date.now() });
   try {
-    const res = await fetch(TOR_CHECK_URL, { cache: 'no-store', credentials: 'omit', signal: AbortSignal.timeout(30_000) });
+    const res = await fetch(TOR_CHECK_URL, { cache: 'no-store', credentials: 'omit', redirect:'error', signal: AbortSignal.timeout(30_000) });
     const j = await res.json();
     if (j?.IsTor === true) return setTorState({ state: 'on', port, at: Date.now() });
     return setTorState({ state: 'error', error: 'NOT_TOR', port, at: Date.now() });
@@ -661,14 +661,16 @@ async function fetchBlocksAt(server, heights, onBody, stopEarly = false) {
  * instead of a full scan; the server learns which coins are the wallet's.
  * Throws FAST_UNSUPPORTED when the server has no UTXO index.
  */
-async function fastRestore(wallet, server, onProgress) {
-  const fr = new light.FastRestore();
+async function fastRestore(wallet, server, onProgress, previousState, profile) {
+  const fr = profile ? light.FastRestore.forProfile(profile) : new light.FastRestore();
   try {
+    if (previousState) fr.seedState(previousState);
     // 1. Which blocks hold payments to our keys. Each round can reveal keys
     //    beyond the look-ahead window; the next round asks about those too.
+    let complete = false;
     for (let round = 0; round < 64; round++) {
       const req = fr.flagsRequest(wallet, rpc.id());
-      if (!req) break;
+      if (!req) { complete = true; break; }
       let body;
       try {
         body = await rpc.post(server, req, { timeoutMs: BLOCKS_TIMEOUT_MS, interruptible: true });
@@ -680,9 +682,10 @@ async function fastRestore(wallet, server, onProgress) {
       const heights = fr.heightsToFetch(body);
       await fetchBlocksAt(server, heights, async (b) => {
         fr.scanBlocks(wallet, b);
-        onProgress?.(fr.progress());
+        await onProgress?.(fr.progress());
       });
     }
+    if (!complete) throw new Error('Indexed recovery exceeded its key discovery limit. Continuing with a private scan.');
     // 2. Membership proofs, all relative to one block, checked locally.
     const chunks = fr.restoreChunks();
     if (chunks > 0) {
@@ -722,10 +725,13 @@ async function runFastRestore({ key, wallet, s, server, st, snap }) {
   const mode = st.fastPending;
   await setStatus({ fastPhase: 'scan', syncing: true });
   try {
-    if (notificationRestoreMode(s.network, mode) === 'private') throw new Error('Private app recovery requires a full scan on test networks.');
+    // Pending payment codes have no AOCL index yet. Previously confirmed
+    // coins, including unannounced coins, are seeded into indexed recovery.
+    if (snap?.state && wallet.expectedList(snap.state).length) throw new Error('Waiting payment codes require a private full scan.');
     const out = await fastRestore(wallet, server, (p) => {
-      setStatus({ fastPhase: 'scan', fastFound: p.coins_found, fastBlocks: p.blocks_scanned }).catch(() => {});
-    });
+      return setStatus({ fastPhase: 'scan', fastFound: p.coins_found, fastBlocks: p.blocks_scanned });
+    }, snap?.state, st.recoveryWallet);
+    if (snap?.state && st.recoveryWallet) out.state = wallet.mergeRecoveredProfile(snap.state, out.state, st.recoveryWallet);
     if (snap?.state) out.state = wallet.carryOver(snap.state, out.state);
     await dropSnapshots(s.network);
     await saveSnapshot(key, out.height, out.state);
@@ -738,8 +744,13 @@ async function runFastRestore({ key, wallet, s, server, st, snap }) {
     // fall back to the private full scan, which needs nothing from the server.
     const msg = String(e.message || e);
     if (msg === 'SCAN_INTERRUPTED') throw e;
-    await setStatus({ fastPending: null, fastPhase: null, fastFailed: /FAST_UNSUPPORTED/.test(msg) ? 'unsupported' : msg.slice(0, 200) });
-    return null;
+    const start = st.recoveryStart ?? 0;
+    let state = await initialState(wallet, server, start);
+    if (snap?.state) state = wallet.rescanState(snap.state, state);
+    await dropSnapshots(s.network);
+    await saveSnapshot(key, start, state);
+    await setStatus({ height:start, startHeight:start, fastPending: null, fastPhase: null, fastFailed: /FAST_UNSUPPORTED/.test(msg) ? 'unsupported' : msg.slice(0, 200) });
+    return {height:start,state};
   }
 }
 
@@ -779,7 +790,7 @@ const syncOnce = singleFlight(() => keepAlive(() =>
         || (st.spendIndex && st.spendIndex.total >= savedHeight && st.spendIndex.have >= st.spendIndex.total);
       const archiveDone = !s0.localArchive || (st.archive && st.archive.state === 'ready'
         && st.archive.target >= Math.max(0, savedHeight - ARCHIVE_LAG) && !st.adoptPending);
-      if (savedHeight != null && savedHeight >= tip && st.height === savedHeight && !st.error && indexDone && !st.watchBehind && archiveDone) {
+      if (savedHeight != null && savedHeight >= tip && st.height === savedHeight && !st.fastPending && !st.error && indexDone && !st.watchBehind && archiveDone) {
         await setStatus({ serverOk: true, lastCheckAt: Date.now(), tip, syncing: false });
         return;
       }
@@ -791,7 +802,7 @@ const syncOnce = singleFlight(() => keepAlive(() =>
       if (!snap) throw new Error('This network has no wallet state yet. Switch to it again from the home page.');
       const watchData = await watchDataFor(key, wallet, snap, s.network);
       const watching = activeWatchIds(wallet.watchList(snap.state, Date.now()), watchData.prefs);
-      if (st.fastPending && snap.height <= 1) {
+      if (st.fastPending) {
         snap = (await runFastRestore({ key, wallet, s, server, st, snap })) || snap;
       }
       await setStatus({
@@ -1342,7 +1353,7 @@ async function adoptWaiting({ key, wallet, server, snap, a }) {
   for (const x of out.adopted.filter((c) => !c.spent)) {
     events.push({
       height: x.height, hash: '', timestamp_ms: await blockTime(server, x.height), spent: [],
-      received: [{ aocl_index: x.aocl_index, amount: x.amount, is_change: false, tx_id: null, address_kind: x.key_kind === 'change' ? null : x.key_kind }],
+      received: [{ aocl_index: x.aocl_index, wallet_mode: x.wallet_mode || 'standard', amount: x.amount, is_change: x.key_kind === 'change', tx_id: null, address_kind: x.key_kind === 'change' ? null : x.key_kind }],
     });
   }
   if (events.length && (await recordBlockEvents(key, events))) notify('activity');
@@ -1440,7 +1451,7 @@ async function saveSend(rec) {
   notify('send', { send: { ...rec, prepared: undefined, sealed: undefined } });
 }
 
-const ACTIVE = ['starting', 'waiting-block', 'preparing', 'rebuilding', 'proving', 'proved', 'submitting', 'needs-lustration'];
+const ACTIVE = ['starting', 'waiting-block', 'preparing', 'rebuilding', 'proving', 'proved', 'submitting', 'uncertain', 'needs-lustration'];
 
 async function activeSend(network) {
   for (const id of await db.keys(db.STORES.sends)) {
@@ -1452,31 +1463,38 @@ async function activeSend(network) {
 
 async function startSend(req) {
   await migrateStorage();
-  const network = await currentNetwork();
-  const busy = await activeSend(network);
-  if (busy) throw new Error('A payment is still being sent. Wait until it finishes, or open it from the home page.');
-  const rec = {
-    id: crypto.randomUUID(),
-    network,
-    to: req.to,
-    toKind: req.toKind || null,
-    walletMode: req.walletMode || 'standard',
-    note: String(req.note || '').slice(0, 200),
-    privateMessage: String(req.privateMessage || ''),
-    notificationMode: req.notificationMode || 'auto',
-    fromKind: ['generation', 'ec-hybrid'].includes(req.fromKind) ? req.fromKind : 'any',
-    amount: req.amount,
-    fee: req.fee,
-    acceptLustration: Boolean(req.acceptLustration),
-    waitForFreshBlock: req.waitForFreshBlock !== false,
-    attempt: 1,
-    pinned: null,
-    createdAt: Date.now(),
-    status: 'starting',
-  };
-  await saveSend(rec);
-  runSend(rec.id).catch(() => {});
-  return rec.id;
+  const id=await exclusiveNow(async()=>{
+    const {s}=await requireWallet();
+    const network=s.network;
+    if(req.networkContext!==network || req.walletMode!==activeMode(s))throw new Error('The selected wallet changed. Review this payment again.');
+    const st=await status(network);
+    if(st.fastPending||st.fastPhase||(st.height!=null&&st.tip!=null&&st.height<st.tip))throw new Error('Wallet recovery or syncing is still running. Wait until it is up to date.');
+    const busy = await activeSend(network);
+    if (busy) throw new Error('A payment is still being sent. Wait until it finishes, or open it from the home page.');
+    const rec = {
+      id: crypto.randomUUID(),
+      network,
+      to: req.to,
+      toKind: req.toKind || null,
+      walletMode: req.walletMode || 'standard',
+      note: String(req.note || '').slice(0, 200),
+      privateMessage: String(req.privateMessage || ''),
+      notificationMode: req.notificationMode || 'auto',
+      fromKind: ['generation', 'ec-hybrid'].includes(req.fromKind) ? req.fromKind : 'any',
+      amount: req.amount,
+      fee: req.fee,
+      acceptLustration: Boolean(req.acceptLustration),
+      waitForFreshBlock: req.waitForFreshBlock !== false,
+      attempt: 1,
+      pinned: null,
+      createdAt: Date.now(),
+      status: 'starting',
+    };
+    await saveSend(rec);
+    return rec.id;
+  });
+  runSend(id).catch(() => {});
+  return id;
 }
 
 const running = new Set(); // send ids with a step in progress in this worker
@@ -1488,6 +1506,11 @@ function guarded(id, fn) {
 }
 
 async function failSend(rec, error) {
+  if(rec.broadcastUncertain) {
+    rec.status='uncertain';
+    await saveSend(rec);
+    return;
+  }
   rec.status = 'failed';
   rec.error = friendlyError(error);
   pushNotice('failed', { e: rec.error });
@@ -1504,7 +1527,7 @@ function friendlyError(e) {
     return 'The broadcast server refused the transaction because of its size. Choose another broadcast server in Settings > Servers.';
   }
   if (/Failed to fetch|NetworkError|aborted|timed out/i.test(m)) {
-    return 'Could not reach the broadcast server. Check your connection; your coins were not spent.';
+    return 'Could not confirm the broadcast result. Check your transaction history before retrying; the node may already have received this payment.';
   }
   if (/FeeNegative|fee/i.test(m) && /node:/.test(m)) return `The node refused the fee. ${m}`;
   if (/insufficient spendable balance/i.test(m)) return m.replace('insufficient spendable balance', 'Not enough available balance');
@@ -1591,6 +1614,7 @@ const CANCELLABLE = ['starting', 'waiting-block', 'preparing', 'rebuilding', 'pr
 async function cancelSend(id) {
   const rec = await getSend(id);
   if (!rec) throw new Error('Payment not found');
+  if(rec.broadcastUncertain || await db.get(db.STORES.kv, `submit:${id}`))throw new Error('Too late to cancel: the transaction may already have reached the network.');
   if (!CANCELLABLE.includes(rec.status)) {
     throw new Error('Too late to cancel: the payment is already being sent to the network.');
   }
@@ -1659,25 +1683,45 @@ async function handleSubmitted(id) {
       await db.del(db.STORES.kv, `submit:${id}`);
       return;
     }
-    if (res.ok) {
+    if (res.ok || res.uncertain || rec.broadcastUncertain) {
       const prepared = await vault.decrypt(key, rec.prepared);
       let height = rec.builtAtHeight;
       await exclusive(async () => {
         const snap = await latestSnapshot(key, rec.network);
         height = snap.height;
-        const next = wallet.recordBroadcast(snap.state, prepared);
-        await saveSnapshot(key, snap.height, next, rec.network);
+        if (!rec.broadcastRecorded || res.ok) {
+          const next = wallet.recordBroadcast(snap.state, prepared);
+          await saveSnapshot(key, snap.height, next, rec.network);
+        }
       });
+      rec.broadcastRecorded = true;
       const list = await readActivity(key, rec.network);
+      const existing = list.find(e => e.txId === rec.view.tx_id);
+      if (existing && res.ok) {
+        existing.broadcastUncertain = false;
+        if (existing.status !== 'confirmed') Object.assign(existing, {status: 'pending', atHeight: height});
+        await writeActivity(key, list, rec.network);
+      }
       if (!list.some((e) => e.txId === rec.view.tx_id)) {
         list.unshift({
           kind: 'sent', id: `t:${rec.view.tx_id}`, txId: rec.view.tx_id, status: 'pending',
           amount: rec.view.amount, fee: rec.view.fee, change: rec.view.change, to: rec.to,
-          walletMode: rec.walletMode || 'standard', toKind: rec.toKind || null, note: rec.note || '', encryptedMessage: rec.toKind === 'private-app' ? rec.privateMessage || '' : null, at: Date.now(), atHeight: height, height: null,
+          walletMode: rec.walletMode || 'standard', toKind: rec.toKind || null, note: rec.note || '', encryptedMessage: rec.toKind === 'private-app' ? rec.privateMessage || '' : null, at: Date.now(), atHeight: height, height: null, broadcastUncertain: !res.ok,
         });
         await writeActivity(key, list, rec.network);
       }
       notify('activity');
+      if (!res.ok) {
+        rec.status = 'uncertain';
+        rec.broadcastUncertain = true;
+        rec.error = 'The node may have received this payment. Retry resends the same transaction. New payments stay blocked until its outcome is known.';
+        await saveSend(rec);
+        await db.del(db.STORES.kv, `submit:${id}`);
+        // Keep the exact prepared transaction and its proofs for safe rebroadcast.
+        return;
+      }
+      rec.broadcastUncertain = false;
+      rec.error = null;
       const total = plus(rec.view.amount, rec.view.fee);
       const change = amt(rec.view.change || '0');
       pushNotice(toUnits(change) > 0n ? 'sentChange' : 'sent', { n: total, c: change });
@@ -1721,6 +1765,22 @@ async function resumeSends() {
       rec.status = rec.attempt > 1 ? 'rebuilding' : 'starting';
       await saveSend(rec);
       await runSend(id);
+    } else if (rec.status === 'uncertain') {
+      if (await db.get(db.STORES.kv, `submit:${id}`)) {
+        await onSubmitted(id);
+        continue;
+      }
+      const w = await openWallet();
+      if (!w) continue;
+      const entry = (await readActivity(w.key, network)).find(e => e.txId === rec.view?.tx_id);
+      if (entry?.status === 'confirmed') {
+        rec.status = 'done'; rec.doneAt = Date.now(); rec.error = null;
+        delete rec.prepared;
+        await saveSend(rec);
+        await db.delPrefix(db.STORES.jobs, `${id}:`);
+        await db.delPrefix(db.STORES.proofs, `${id}:`);
+        await closeOffscreenIfIdle();
+      }
     } else if (['proving', 'proved', 'submitting'].includes(rec.status)) {
       if (await db.get(db.STORES.kv, `submit:${id}`)) {
         await onSubmitted(id);
@@ -1736,13 +1796,17 @@ async function resumeSends() {
             if (await db.get(db.STORES.jobs, `${id}:${i}`)) jobs += 1;
           }
           if (rec.prepared && proofs === rec.jobCount) await dispatchSubmit(rec);
-          else if (rec.prepared && jobs === rec.jobCount) await dispatchProve(rec);
+          else if (rec.prepared && jobs === rec.jobCount && !rec.broadcastUncertain) await dispatchProve(rec);
           else {
+            if(rec.broadcastUncertain)throw new Error('The original transaction proofs are unavailable. Its outcome still needs verification.');
             rec.status = 'starting';
             await saveSend(rec);
           }
         } catch (e) {
-          await failSend(rec, e);
+          if(rec.broadcastUncertain) {
+            rec.status='uncertain';
+            await saveSend(rec);
+          } else await failSend(rec, e);
         }
       });
       if (rec.status === 'starting') await runSend(id);
@@ -1773,7 +1837,7 @@ let priceCache = null;
 async function fetchPrice() {
   if (priceCache && Date.now() - priceCache.at < PRICE_TTL_MS) return priceCache;
   await rpc.assertRoute(PRICE_URL);
-  const r = await fetch(PRICE_URL, { credentials: 'omit', cache: 'no-store' });
+  const r = await fetch(PRICE_URL, { credentials: 'omit', cache: 'no-store', redirect:'error' });
   if (!r.ok) throw new Error(`price service answered ${r.status}`);
   const j = await r.json();
   const npt = j['neptune-cash'] || {};
@@ -1799,7 +1863,7 @@ async function fetchPriceHistory(cur) {
   if (historyCache && historyCache.vs === vs && Date.now() - historyCache.at < HISTORY_TTL_MS) return historyCache;
   const url = `https://api.coingecko.com/api/v3/coins/neptune-cash/market_chart?vs_currency=${vs}&days=7`;
   await rpc.assertRoute(url);
-  const r = await fetch(url, { credentials: 'omit', cache: 'no-store' });
+  const r = await fetch(url, { credentials: 'omit', cache: 'no-store', redirect:'error' });
   if (!r.ok) throw new Error(`price service answered ${r.status}`);
   const j = await r.json();
   const raw = (j.prices || []).filter((p) => Array.isArray(p) && Number.isFinite(p[1]));
@@ -1826,15 +1890,47 @@ async function requireWallet() {
   return w;
 }
 
+async function actionSelection(args = {}) {
+  const w = await requireWallet();
+  const selected = { ...w, profile: activeMode(w.s), network: w.s.network };
+  if ((args.walletMode && args.walletMode !== selected.profile) || (args.networkContext && args.networkContext !== selected.network)) {
+    throw new Error('The selected wallet changed. Open this page again.');
+  }
+  return selected;
+}
+
+function assertSameSelection(current, selected) {
+  if(current.wallet!==selected.wallet || current.s.network!==selected.network || activeMode(current.s)!==selected.profile) {
+    throw new Error('The selected wallet changed. Open this page again.');
+  }
+}
+
+function paymentCode(text) {
+  if(typeof text!=='string'||text.length>65536)throw new Error('Payment code exceeds the 64 KiB limit.');
+  const code=text.trim();
+  if(!code)throw new Error('Enter a payment code.');
+  return code;
+}
+
 /** Start height for a restore: a block height, a date, or the tip. */
 async function startHeight(server, { birthday, birthdayDate }) {
   if (birthday !== undefined && birthday !== null && birthday !== '') {
-    const b = Math.floor(Number(birthday));
-    if (!Number.isFinite(b) || b < 0) throw new Error('Not a block height');
+    const b = Number(birthday);
+    if (!Number.isSafeInteger(b) || b < 0) throw new Error('Not a block height');
     return b <= 1 ? 0 : b; // from the very beginning: the genesis block
   }
   if (birthdayDate) return heightAtDate(server, Number(birthdayDate));
   return fetchHeight(server);
+}
+
+/** Include the chosen node in the proxy rules BEFORE any recovery request. */
+async function configureRecoveryNode(s, network, url) {
+  const saved=await settingsStore.save({servers:{...s.servers,[network]:{sync:url,broadcast:url}}});
+  if(saved.tor) {
+    if(!(await torState()).required)await setTorState({state:'connecting',port:Number(saved.torPort)||9150});
+    await applyTor({check:false});
+  }
+  return saved;
 }
 
 // ------------------------------------------------------------ contacts ----
@@ -1883,9 +1979,14 @@ const commands = {
     return settingsStore.save({ activeMode: mode });
   },
   async exportRecovery({ password }) {
-    await requireWallet();
+    const {s,wallet}=await requireWallet();
+    if(activeMode(s)!=='encrypted')throw new Error('The encrypted recovery file is only available in the Encrypted sub-wallet.');
+    requirePrivateNotifications(s);
     const phrase = await vault.checkPassword(String(password || ''));
-    return encryptRecoveryFile(phrase, String(password || ''));
+    const file=await encryptRecoveryFile(phrase,String(password||''));
+    const current=await requireWallet();
+    if(current.wallet!==wallet||activeMode(current.s)!=='encrypted')throw new Error('The wallet changed or locked before the backup finished.');
+    return file;
   },
   async state() {
     await migrateStorage();
@@ -1922,12 +2023,12 @@ const commands = {
     const clean = String(phrase).trim().toLowerCase().split(/\s+/).join(' ');
     const wallet = new light.LightWallet(clean, network); // validates the phrase
     let prev = await settingsStore.load();
-    const restoring = Boolean(birthday || birthdayDate);
+    const restoring = (birthday !== undefined && birthday !== null && birthday !== '') || Boolean(birthdayDate);
     if (restoring && restoreMode === 'node') {
       // Fast and private: the user's own node does the lookups and keeps
       // serving this network afterwards.
       const url = rpc.normalizeServer(nodeUrl || 'http://127.0.0.1:9797/');
-      prev = { ...prev, servers: { ...prev.servers, [network]: { sync: url, broadcast: url } } };
+      prev = await configureRecoveryNode(prev,network,url);
     }
     const server = settingsStore.serversFor(prev, network).sync;
     if (!server) throw new Error(`Add a ${network} server in Settings > Servers first.`);
@@ -1945,7 +2046,7 @@ const commands = {
     const key = await vault.create(password, clean);
     await saveSnapshot(key, start, state, network);
     const fastPending = restoring && ['fast', 'node'].includes(effectiveRestoreMode) ? effectiveRestoreMode : null;
-    await setStatus({ height: start, startHeight: start, restored: restoring, syncing: true, fastPending }, network);
+    await setStatus({ height: start, startHeight: start, recoveryStart:start, recoveryMode:effectiveRestoreMode, restored: restoring, syncing: true, fastPending }, network);
     await bumpAutoLock();
     notify('walletChanged');
     syncOnce().catch(() => {});
@@ -2152,12 +2253,20 @@ const commands = {
     const profile=activeMode(s);
     if(req.walletMode && req.walletMode!==profile) throw new Error('Sub-wallet changed. Review this payment again.');
     if(profile==='encrypted' && info.kind!=='private-app') throw new Error('The Encrypted sub-wallet requires an encrypted receiving address.');
-    return startSend({ ...req, walletMode:profile, toKind: info.kind });
+    return startSend({ ...req, walletMode:profile, toKind: info.kind, networkContext:s.network });
   },
 
   async retrySend({ id }) {
+    const {s}=await requireWallet();
     const rec = await getSend(id);
     if (!rec) throw new Error('Payment not found');
+    if(rec.network!==s.network||(rec.walletMode||'standard')!==activeMode(s))throw new Error('Select the payment’s sub-wallet and network before retrying.');
+    if(rec.status==='uncertain') {
+      if((await offscreenBusyWith())===id)throw new Error('The original transaction is still being uploaded. Wait for its response.');
+      await guarded(id,()=>dispatchSubmit(rec));
+      return id;
+    }
+    if(rec.status!=='failed')throw new Error('Only a failed payment can be started again.');
     return commands.send({ to: rec.to, amount: rec.amount, fee: rec.fee, fromKind: rec.fromKind, privateMessage: rec.privateMessage || '', notificationMode: rec.notificationMode || 'auto', walletMode:rec.walletMode || 'standard', waitForFreshBlock: false });
   },
 
@@ -2326,34 +2435,44 @@ const commands = {
   },
 
   /** Scan again from an earlier point: finds payments a restore without a date missed. */
-  async rescan({ birthday, birthdayDate }) {
+  async rescan({ birthday = 0, birthdayDate, mode = 'private', nodeUrl, walletMode, networkContext, encryptedOnly = false, rememberMode = true } = {}) {
     const { key, wallet, s } = await requireWallet();
-    const server = settingsStore.serversFor(s).sync;
+    mode = notificationRestoreMode(s.network, mode);
+    const network=s.network, profile=activeMode(s);
+    if(networkContext&&networkContext!==network)throw new Error('The selected network changed. Open recovery again.');
+    if (walletMode && walletMode !== activeMode(s)) throw new Error('The selected sub-wallet changed. Open recovery again.');
+    if (encryptedOnly && activeMode(s) !== 'encrypted') throw new Error('Encrypted receipt recovery is only available in the Encrypted sub-wallet.');
+    if (encryptedOnly) requirePrivateNotifications(s);
+    const server = mode === 'node' ? rpc.normalizeServer(String(nodeUrl || 'http://127.0.0.1:9797/')) : settingsStore.serversFor(s).sync;
     if (!server) throw new Error('NEED_SERVER');
-    const start = await startHeight(server, { birthday, birthdayDate });
+    let start;
     await exclusiveNow(async () => {
+      const current=await requireWallet();
+      if(current.wallet!==wallet || current.s.network!==network || activeMode(current.s)!==profile)throw new Error('The selected wallet changed. Open recovery again.');
       const old = await latestSnapshot(key);
-      let state = await initialState(wallet, server, start);
-      // Waiting coins and watch-only addresses survive the new scan.
-      if (old) state = wallet.carryOver(old.state, state);
-      await dropSnapshots(s.network);
-      await saveSnapshot(key, start, state);
-      // In node mode, a full rescan uses the node's UTXO index when it has
-      // one: fast, and only your own node is asked.
-      let local = false;
-      try {
-        local = ['localhost', '127.0.0.1'].includes(new URL(server).hostname);
-      } catch {
-        local = false;
+      if(await activeSend(network) || (old && wallet.summary(old.state,Date.now()).utxos.some(u=>u.reserved&&u.spent_height==null)))throw new Error('A payment is still pending. Wait for confirmation, expiry, or cancel it before starting recovery.');
+      if(mode==='node')await configureRecoveryNode(current.s,network,server);
+      start=await startHeight(server,{birthday:birthdayDate?undefined:birthday,birthdayDate});
+      if(mode==='private' && old) {
+        // A later requested height must not hide receipts we already know.
+        const known=wallet.summary(old.state,Date.now()).utxos.map(u=>u.received_height).filter(h=>Number.isSafeInteger(h)&&h>=0);
+        if(wallet.expectedList(old.state).length)start=0;
+        else if(known.length)start=Math.min(start,Math.max(0,known.reduce((min,h)=>Math.min(min,h),Infinity)-1));
       }
-      // A scan from genesis that already found premine coins stays a full
-      // scan: the fast restore cannot see unannounced coins.
-      const premine = start <= 0 && wallet.summary(state, Date.now()).utxos.length > 0;
-      const fastPending = s.network === 'main' && start <= 1 && local && !premine ? 'node' : null;
-      await setStatus({ height: start, startHeight: start, syncing: true, error: null, restored: true, fastPending, fastFailed: null });
+      const indexed = ['fast','node'].includes(mode);
+      let state = indexed && old ? old.state : await initialState(wallet, server, start);
+      // Waiting coins and watch-only addresses survive the new scan.
+      if (old && !indexed) state = wallet.rescanState(old.state, state);
+      if (!indexed || !old) {
+        await dropSnapshots(s.network);
+        await saveSnapshot(key, start, state);
+      }
+      const fastPending = indexed ? mode : null;
+      if(rememberMode)await settingsStore.save({recoveryModes:{...current.s.recoveryModes,[profile]:mode}});
+      await setStatus({ height: indexed && old ? old.height : start, startHeight:start, recoveryStart:start, syncing: true, error: null, restored: true, recoveryMode:mode, recoveryWallet:activeMode(s), fastPending, fastPhase:null, fastFailed:null });
     });
     syncOnce().catch(() => {});
-    return { start };
+    return { start, mode, walletMode:activeMode(s) };
   },
 
   async heightForDate({ date }) {
@@ -2433,46 +2552,64 @@ const commands = {
 
   /** This wallet's viewing keys (and spend keys), after the password. */
   async viewingKeys({ password }) {
+    const initial=await requireWallet();
+    const initialMode=activeMode(initial.s);
     try {
       await vault.checkPassword(password);
     } catch {
       throw new Error('Wrong password');
     }
-    const { wallet } = await requireWallet();
-    return wallet.viewingKeys();
+    const { key, wallet, s } = await requireWallet();
+    if(wallet!==initial.wallet||activeMode(s)!==initialMode)throw new Error('The selected wallet changed before export completed.');
+    if(activeMode(s)==='encrypted')throw new Error('Encrypted receipt viewing-key export is not supported. Ordinary viewing keys cannot follow encrypted envelopes.');
+    const snap=await latestSnapshot(key);
+    if(!snap)throw new Error('NO_STATE');
+    const current=await requireWallet();
+    if(current.wallet!==wallet||activeMode(current.s)!==initialMode)throw new Error('The wallet changed or locked before export completed.');
+    return wallet.viewingKeys(snap.state,activeMode(s));
   },
 
   // ------------------------------------------------- registered coins --
 
-  async claimCheck({ text }) {
-    const { key, wallet } = await requireWallet();
-    const snap = await latestSnapshot(key);
+  async claimCheck(args) {
+    const text=paymentCode(args.text), selected=await actionSelection(args);
+    const { key, wallet }=selected;
+    const snap = await latestSnapshot(key,selected.network);
     if (!snap) throw new Error('NO_STATE');
-    return wallet.claimDecode(snap.state, String(text || ''));
+    assertSameSelection(await requireWallet(),selected);
+    return wallet.claimDecode(snap.state, text, selected.profile);
   },
 
-  async claimRegister({ text, jobId }) {
-    const s = await settingsStore.load();
-    const claim = await withState(async ({ wallet, snap }) => {
-      const out = wallet.claimRegister(snap.state, String(text || ''));
+  async claimRegister(args) {
+    const text=paymentCode(args.text), selected=await actionSelection(args);
+    const claim = await withState(async ({ wallet, snap, s }) => {
+      assertSameSelection({wallet,s},selected);
+      const out = wallet.claimRegister(snap.state, text, selected.profile);
       return { state: out.state, out: out.claim };
-    }, jobId);
-    if (s.localArchive) await setStatus({ adoptPending: true });
+    }, args.jobId);
+    if (selected.s.localArchive) await setStatus({ adoptPending: true },selected.network);
     syncOnce().catch(() => {});
     return claim;
   },
 
-  async claimRemove({ record }) {
-    await withState(async ({ wallet, snap }) => ({ state: wallet.claimRemove(snap.state, String(record)) }));
+  async claimRemove(args) {
+    const selected=await actionSelection(args),record=String(args.record||'');
+    await withState(async ({ wallet, snap, s }) => {
+      assertSameSelection({wallet,s},selected);
+      if(!wallet.expectedList(profileState(wallet,snap.state,activeMode(s))).some(c=>c.addition_record===String(record)))throw new Error('No waiting payment with this code in the selected sub-wallet.');
+      return {state:wallet.claimRemove(snap.state,String(record))};
+    });
     return true;
   },
 
-  async waiting() {
-    const { key, wallet, s } = await requireWallet();
-    const snap = await latestSnapshot(key);
+  async waiting(args = {}) {
+    const selected=await actionSelection(args),{ key, wallet, s }=selected;
+    const snap = await latestSnapshot(key,selected.network);
     if (!snap) throw new Error('NO_STATE');
-    const st = await status();
-    return { list: wallet.expectedList(snap.state), archive: s.localArchive ? st.archive || { state: 'building' } : null, lastAdopted: st.lastAdopted || null };
+    const st = await status(selected.network);
+    assertSameSelection(await requireWallet(),selected);
+    const lastAdopted=st.lastAdopted?{...st.lastAdopted,list:(st.lastAdopted.list||[]).filter(c=>(c.wallet_mode||'standard')===selected.profile)}:null;
+    return { profile:selected.profile, list: wallet.expectedList(profileState(wallet,snap.state,selected.profile)), archive: s.localArchive ? st.archive || { state: 'building' } : null, lastAdopted };
   },
 
   /**
@@ -2480,23 +2617,26 @@ const commands = {
    * progress), then register what was found. The archive (or a scan from
    * genesis) then adds them.
    */
-  async findPremine({ jobId }) {
-    const { wallet, s } = await requireWallet();
+  async findPremine(args) {
+    const selected=await actionSelection(args), {wallet,s}=selected, {jobId}=args;
+    if(selected.profile!=='standard')throw new Error('Premine allocations belong to the Standard sub-wallet.');
     jobProgress(jobId, { phase: 'genesis', done: 0, total: 10 });
     await sleep(0);
     const hits = [];
     for (let i = 0; i < 10; i++) {
       cancelled(jobId);
+      assertSameSelection(await requireWallet(),selected);
       if (wallet.premineForKey(i) > 0) hits.push(i);
       jobProgress(jobId, { phase: 'keys', done: i + 1, total: 10 });
       await sleep(0); // let the progress message go out
     }
     if (!hits.length) return { found: 0, archive: Boolean(s.localArchive) };
-    const found = await withState(async ({ wallet: w, snap }) => {
+    const found = await withState(async ({ wallet: w, snap, s:current }) => {
+      assertSameSelection({wallet:w,s:current},selected);
       const out = w.registerPremine(snap.state, new Float64Array(hits));
       return { state: out.found ? out.state : null, out: out.found };
     }, jobId);
-    if (found && s.localArchive) await setStatus({ adoptPending: true });
+    if (found && s.localArchive) await setStatus({ adoptPending: true },selected.network);
     if (found) syncOnce().catch(() => {});
     return { found, archive: Boolean(s.localArchive) };
   },
@@ -2545,11 +2685,15 @@ const commands = {
   },
 
   async revealPhrase({ password }) {
+    const {wallet}=await requireWallet();
+    let phrase;
     try {
-      return await vault.checkPassword(password);
+      phrase=await vault.checkPassword(password);
     } catch {
       throw new Error('Wrong password');
     }
+    if((await requireWallet()).wallet!==wallet)throw new Error('The wallet changed before the recovery phrase was revealed.');
+    return phrase;
   },
 
   async reset() {

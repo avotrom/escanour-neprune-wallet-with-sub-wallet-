@@ -64,7 +64,7 @@ Snapshots (`<network>:<height>`), history (`kv/activity:<network>`), sends and s
 ### Starting points
 
 - **New wallet:** start at the tip. The tip block's body contains the full accumulator, so nothing older is needed.
-- **Restore from seed:** scan the whole chain from block 1, so every coin of the seed is found without asking when the wallet was created. The scan runs in chunks of 500 blocks, one right after the other, releasing the lock between chunks; the home page shows its progress, and addresses are derived from the seed alone, so they appear at once.
+- **Restore from seed:** choose Fast, Private scan or Own node. Private scan reads from genesis by default; Fast and Own node use ordinary branch flags plus shared encrypted-envelope format flags and verified membership responses, falling back to a full scan if unavailable. Off-chain-only payment codes still need to be supplied on a fresh installation. The scan runs in chunks of 500 blocks, one right after the other, releasing the lock between chunks; the home page shows its progress, and addresses are derived from the seed alone, so they appear at once.
 
 ### Restoring: three ways
 

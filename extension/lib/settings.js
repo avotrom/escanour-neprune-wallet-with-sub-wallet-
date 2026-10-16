@@ -36,6 +36,7 @@ export const DEFAULTS = {
   // 'ec-hybrid' (short; notification privacy relies on elliptic curves).
   addressKind: 'generation',
   activeMode: 'standard',
+  recoveryModes: { standard:'fast', refresh:'private', encrypted:'private' },
   autoRefresh: false,
   createdWallets: { standard:true, refresh:false, encrypted:false },
   // Experimental app-address sending/publishing; mainnet is disabled in Rust too.
@@ -57,6 +58,7 @@ export const DEFAULTS = {
 /** Settings written by versions before 0.3 kept one server pair for the wallet's network. */
 function migrate(s) {
   const out = { ...DEFAULTS, ...s };
+  out.recoveryModes = {...DEFAULTS.recoveryModes,...s.recoveryModes};
   out.createdWallets={standard:true,refresh:s.createdWallets?.refresh===true || s.autoRefresh===true,encrypted:s.createdWallets?.encrypted===true || s.privateNotifications===true};
   out.servers = {};
   for (const n of NETWORKS) out.servers[n] = { ...DEFAULT_SERVERS[n], ...(s.servers?.[n] || {}) };

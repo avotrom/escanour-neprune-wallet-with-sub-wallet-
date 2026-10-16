@@ -1,4 +1,6 @@
 import test from 'node:test';
+import fs from 'node:fs';
+import vm from 'node:vm';
 import assert from 'node:assert/strict';
 import { contactAddresses, decorateWatch, visibleWatch, activeWatchIds, scanProgress, singleFlight } from '../extension/lib/watch-model.js';
 import * as rpc from '../extension/lib/rpc.js';
@@ -56,4 +58,22 @@ test('remote requests fail closed while Tor is disconnected; local nodes remain 
     await assert.rejects(rpc.assertRoute('https://example.invalid/'),/Tor is not connected/);
     await rpc.assertRoute('http://127.0.0.1:9799/');
   } finally { delete globalThis.chrome; }
+});
+
+test('node requests cannot follow redirects to an unchosen host',async()=>{
+  const original=globalThis.fetch;let options;
+  globalThis.fetch=async(url,opts)=>{options=opts;return {ok:true,text:async()=>'{"result":true}'};};
+  try{await rpc.post('https://example.invalid/','{}');assert.equal(options.redirect,'error');assert.equal(options.credentials,'omit');}
+  finally{globalThis.fetch=original;}
+});
+test('node URL validation rejects non-HTTP schemes and embedded credentials',()=>{
+  for(const url of ['file://localhost/test','javascript://localhost/test','ws://localhost:9797','https://user:password@example.invalid/'])assert.throws(()=>rpc.normalizeServer(url));
+});
+
+test('saved Tor policy cannot be bypassed by a stale session saying Tor is optional',async()=>{
+  const source=fs.readFileSync(new URL('../extension/lib/rpc.js',import.meta.url),'utf8').replace(/^import .*;\n/gm,'').replace(/export /g,'')+'\nglobalThis.assertRoute=assertRoute;';
+  const context=vm.createContext({URL,loadSettings:async()=>({tor:true}),chrome:{storage:{session:{get:async()=>({tor:{required:false,state:'off'}})}}}});
+  vm.runInContext(source,context);
+  await assert.rejects(context.assertRoute('https://example.invalid/'),/Tor is not connected/);
+  await context.assertRoute('http://127.0.0.1:9797/');
 });
