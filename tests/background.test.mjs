@@ -3,6 +3,7 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import vm from 'node:vm';
 import * as model from '../extension/lib/watch-model.js';
+import * as walletModes from '../extension/lib/wallet-modes.js';
 import * as privateModel from '../extension/lib/private-notifications.js';
 import { encryptRecoveryFile } from '../extension/lib/recovery-file.js';
 
@@ -17,6 +18,11 @@ async function harness() {
     decrypt:async(k,b)=>new Uint8Array(await crypto.subtle.decrypt({name:'AES-GCM',iv:b.iv},k,b.data))};
   const encode=o=>enc.encode(JSON.stringify(o)),decode=b=>JSON.parse(dec.decode(b));
   class Wallet {
+    profileReceiveAddress(bytes,profile,kind){const st=decode(bytes);const index=profile==='refresh'?st.receiveIndex||0:0;return {index,profile,kind,address:profile==='encrypted'?`nescan:${kind}:${index}`:`${profile}:${kind}:${index}`};}
+    profileAddressAt(profile,kind,index){return `${profile}:${kind}:${index}`;}
+    profileAddressHistory(bytes,profile,kind,offset){const index=decode(bytes).receiveIndex||0;return {profile,kind,rows:offset?[]:[{index,address:this.profileAddressAt(profile,kind,index),current:true,receipts:0}],total:1,next:1};}
+    profileState(bytes,profile){return encode({...decode(bytes),profile});}
+    summary(bytes){const st=decode(bytes);return {available:st.balances?.[st.profile]||'0',utxos:(st.coins||[]).filter(u=>u.profile===st.profile),by_kind:{generation:'0',ec_hybrid:'0'}};}
     addressAt(kind,index){return `${kind}:${index}`;}
     receiveAddress(bytes,kind){const st=decode(bytes);return {index:st.receiveIndex||0,address:this.addressAt(kind,st.receiveIndex||0),kind};}
     privateAppAddress(){return 'nescan:0';}
@@ -28,13 +34,13 @@ async function harness() {
     free(){}
   }
   const light={maxBlocksPerCall:()=>2,getBlocksRequest:(id,from,to)=>JSON.stringify({from,to}),LightWallet:Wallet,addressInfo:(a)=>({valid:/^(nolga|nech)/.test(a),kind:a.startsWith('nech')?'ec-hybrid':'generation'})};
-  const settings={network:'main',servers:{main:{sync:'https://example.invalid/',broadcast:'https://example.invalid/'}},exactPrivacy:false};
+  const settings={network:'main',createdWallets:{standard:true,refresh:false,encrypted:false},servers:{main:{sync:'https://example.invalid/',broadcast:'https://example.invalid/'}},exactPrivacy:false};
   const settingsStore={NETWORKS:['main'],load:async()=>settings,save:async patch=>Object.assign(settings,patch),serversFor:s=>s.servers[s.network]};
   const session={};const listener={addListener:()=>{}};
   const chrome={runtime:{sendMessage:async()=>{},getURL:x=>x,getPlatformInfo:async()=>{},onMessage:listener,onInstalled:listener,onStartup:listener},notifications:{onClicked:listener},storage:{session:{get:async k=>({[k]:session[k]}),set:async patch=>Object.assign(session,patch)}},alarms:{create:()=>{},onAlarm:listener},sidePanel:{setPanelBehavior:async()=>{}}};
   const rpc={interrupt:()=>{},id:()=>1,post:async(url,body)=>body,normalizeServer:url=>new URL(url).origin+'/'};
   const source=fs.readFileSync(new URL('../extension/background.js',import.meta.url),'utf8').replace(/^import .*;\n/gm,'')+'\nglobalThis.api = {commands, latestSnapshot, saveSnapshot, dropWallet, setStatus, status, requireWallet, watchCatchUp, watchFastStep, saveSend, getSend, recordBlockEvents, readActivity};';
-  const context=vm.createContext({chrome,db,vault,light,rpc,settingsStore,...model,...privateModel,encryptRecoveryFile,initLight:async()=>{},t:x=>x,setLanguage:()=>{},TextEncoder,TextDecoder,Uint8Array,ArrayBuffer,crypto,URL,AbortController,AbortSignal,Date,console,setTimeout:()=>1,clearTimeout:()=>{},setInterval:()=>1,clearInterval:()=>{}});
+  const context=vm.createContext({chrome,db,vault,light,rpc,settingsStore,...model,...privateModel,...walletModes,encryptRecoveryFile,initLight:async()=>{},t:x=>x,setLanguage:()=>{},TextEncoder,TextDecoder,Uint8Array,ArrayBuffer,crypto,URL,AbortController,AbortSignal,Date,console,setTimeout:()=>1,clearTimeout:()=>{},setInterval:()=>1,clearInterval:()=>{}});
   new vm.Script(source).runInContext(context);
   const initial=encode({height:100,watch:[]});await context.api.saveSnapshot(key,100,initial,'main');
   return {api:context.api,maps,key,initial,rpc,light,vault,settings};
@@ -48,30 +54,71 @@ test('backend enforces private address opt-in and mainnet exclusion before any s
   await assert.rejects(h.api.commands.send({to:'nescan1test'}),/mainnet/);
   await assert.rejects(h.api.commands.saveSettings({privateNotifications:true}),/mainnet/);
   h.settings.network='testnet';h.settings.privateNotifications=false;
-  await assert.rejects(h.api.commands.receive({kind:'private-app'}),/Enable Private/);
-  await assert.rejects(h.api.commands.send({to:'nescan1test'}),/Enable Private/);
+  await assert.rejects(h.api.commands.receive({kind:'private-app'}),/Enable Encrypted/);
+  await assert.rejects(h.api.commands.send({to:'nescan1test'}),/Enable Encrypted/);
   h.settings.privateNotifications=true;
-  const {wallet}=await h.api.requireWallet();wallet.privateAppAddress=()=> 'nescan1publictest';
-  assert.equal((await h.api.commands.receive({kind:'private-app'})).address,'nescan1publictest');
+  await h.api.saveSnapshot(h.key,100,h.initial,'testnet');h.api.dropWallet();
+  h.settings.createdWallets.encrypted=true;h.settings.activeMode='encrypted';
+  assert.equal((await h.api.commands.receive({kind:'generation'})).address,'nescan:generation:0');
+  assert.equal((await h.api.commands.receive({kind:'ec-hybrid'})).address,'nescan:ec-hybrid:0');
 });
 
-test('receiving rotation respects its setting and detected leak override',async()=>{
+test('only Standard exists by default; explicit creation enables separate two-address sub-wallets',async()=>{
   const h=await harness();
-  h.settings.network='testnet';h.settings.privateNotifications=true;
-  const bytes=new TextEncoder().encode(JSON.stringify({height:100,watch:[],receiveIndex:3,privateIndex:4}));
+  await assert.rejects(h.api.commands.selectMode({mode:'refresh'}),/Create/);
+  await assert.rejects(h.api.commands.createSubwallet({mode:'encrypted'}),/mainnet/);
+  h.settings.network='testnet';
+  const bytes=new TextEncoder().encode(JSON.stringify({height:100,watch:[],receiveIndex:3}));
   await h.api.saveSnapshot(h.key,100,bytes,'testnet');h.api.dropWallet();
-  assert.equal((await h.api.commands.receive({kind:'ec-hybrid'})).index,0);
-  h.settings.freshAddresses=true;
-  for (const kind of ['generation','ec-hybrid']) {
-    assert.equal((await h.api.commands.receive({kind})).index,3);
-    assert.equal((await h.api.commands.receive({kind})).index,3);
-  }
-  assert.equal((await h.api.commands.receive({kind:'private-app'})).index,4);
-  h.settings.freshAddresses=false;
-  await h.api.recordBlockEvents(h.key,[{height:101,timestamp_ms:Date.now(),received:[{aocl_index:1,amount:'2',address_kind:'private-unprotected'}],spent:[]}]);
-  assert.equal((await h.api.commands.receive({kind:'private-app'})).index,4);
-  h.settings.rotateOnLeak=false;
-  assert.equal((await h.api.commands.receive({kind:'private-app'})).index,0);
+  for(const kind of ['generation','ec-hybrid']) assert.equal((await h.api.commands.receive({kind})).address,`standard:${kind}:0`);
+  await h.api.commands.createSubwallet({mode:'refresh'});
+  for(const kind of ['generation','ec-hybrid'])assert.equal((await h.api.commands.receive({kind})).address,`refresh:${kind}:3`);
+  await assert.rejects(h.api.commands.createSubwallet({mode:'refresh'}),/already exists/);
+  await h.api.commands.createSubwallet({mode:'encrypted'});
+  for(const kind of ['generation','ec-hybrid'])assert.equal((await h.api.commands.receive({kind})).address,`nescan:${kind}:0`);
+  await h.api.commands.selectMode({mode:'standard'});
+  assert.equal((await h.api.commands.receive()).address,'standard:generation:0');
+});
+
+test('Auto-refresh address history and previous QR addresses stay scoped and bounded',async()=>{
+  const h=await harness();h.settings.network='testnet';
+  await h.api.saveSnapshot(h.key,100,new TextEncoder().encode(JSON.stringify({height:100,watch:[],receiveIndex:3})),'testnet');
+  await h.api.commands.createSubwallet({mode:'refresh'});
+  const history=await h.api.commands.addressHistory({kind:'ec-hybrid'});assert.equal(history.profile,'refresh');assert.equal(history.kind,'ec-hybrid');
+  const previous=await h.api.commands.receive({kind:'generation',index:1});assert.equal(previous.address,'refresh:generation:1');assert.equal(previous.current,false);
+  const current=await h.api.commands.receive({kind:'generation',index:3});assert.equal(current.current,true);
+  await assert.rejects(h.api.commands.receive({kind:'generation',index:4}),/Unknown previous/);
+  await assert.rejects(h.api.commands.addressHistory({kind:'generation',offset:-1}),/Invalid/);
+  await assert.rejects(h.api.commands.addressHistory({kind:'unknown'}),/Unknown/);
+  await h.api.commands.selectMode({mode:'standard'});
+  await assert.rejects(h.api.commands.receive({kind:'generation',index:0}),/Unknown previous/);
+});
+
+test('activity stays with the owning sub-wallet',async()=>{
+  const h=await harness();
+  await h.api.recordBlockEvents(h.key,[{height:101,timestamp_ms:Date.now(),received:[
+    {aocl_index:1,amount:'2',address_kind:'generation',wallet_mode:'standard'},
+    {aocl_index:2,amount:'3',address_kind:'ec-hybrid',wallet_mode:'refresh'},
+    {aocl_index:3,amount:'4',address_kind:'generation',private_message:'hello',wallet_mode:'encrypted'},
+  ],spent:[]}]);
+  assert.deepEqual(Array.from(await h.api.commands.activity(),e=>e.amount),['2']);
+  h.settings.network='testnet';
+  // Activity is also isolated by network. Put the same records into the test network.
+  await h.api.recordBlockEvents(h.key,[{height:101,timestamp_ms:Date.now(),received:[{aocl_index:2,amount:'3',address_kind:'ec-hybrid',wallet_mode:'refresh'},{aocl_index:3,amount:'4',address_kind:'generation',private_message:'hello',wallet_mode:'encrypted'}],spent:[]}]);
+  await h.api.commands.createSubwallet({mode:'refresh'});
+  assert.deepEqual(Array.from(await h.api.commands.activity(),e=>e.amount),['3']);
+  await h.api.commands.createSubwallet({mode:'encrypted'});
+  assert.deepEqual(Array.from(await h.api.commands.activity(),e=>e.amount),['4']);
+});
+
+test('seed recovery discovers funded optional wallets and home shows only the selected balance',async()=>{
+  const h=await harness();h.settings.network='testnet';
+  const bytes=new TextEncoder().encode(JSON.stringify({height:100,watch:[],balances:{standard:'2',refresh:'3',encrypted:'4'},coins:[{profile:'refresh'},{profile:'encrypted'}]}));
+  await h.api.saveSnapshot(h.key,100,bytes,'testnet');h.api.dropWallet();
+  let home=await h.api.commands.home();assert.equal(home.summary.available,'2');
+  assert.equal(home.createdWallets.refresh,true);assert.equal(home.createdWallets.encrypted,true);
+  await h.api.commands.selectMode({mode:'encrypted'});home=await h.api.commands.home();assert.equal(home.summary.available,'4');
+  await h.api.commands.selectMode({mode:'refresh'});home=await h.api.commands.home();assert.equal(home.summary.available,'3');
 });
 
 test('encrypted recovery export requires the current wallet password',async()=>{

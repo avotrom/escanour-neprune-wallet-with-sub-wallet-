@@ -1,3 +1,4 @@
+import { activeMode } from './lib/wallet-modes.js';
 import { privateNotificationsEnabled, validatePrivateSend, privateRecoveryStart, rotateReceivingAddress } from './lib/private-notifications.js';
 import { isEncryptedRecoveryFile, decryptRecoveryFile } from './lib/recovery-file.js';
 // Popup UI. Holds no secrets except a recovery phrase the user is looking at;
@@ -8,7 +9,7 @@ import { contactAddresses, visibleWatch, scanProgress, singleFlight } from './li
 import { readAddressFromFile, readAddressFromImageBlob, cleanAddress } from './lib/qrimport.js';
 
 const $ = (id) => document.getElementById(id);
-const SCREENS = ['welcome', 'ready', 'setup', 'unlock', 'home', 'private', 'private-payments', 'private-fresh', 'private-leaks', 'private-backup', 'private-recovery', 'private-history', 'settings', 'contacts', 'phrase', 'servers', 'advanced', 'about', 'pcheck', 'tor', 'watch', 'claim', 'archive'];
+const SCREENS = ['welcome', 'ready', 'setup', 'unlock', 'home', 'address-history', 'modes', 'mode-standard', 'mode-refresh', 'private-payments', 'private-backup', 'private-recovery', 'private-history', 'settings', 'contacts', 'phrase', 'servers', 'advanced', 'about', 'pcheck', 'tor', 'watch', 'claim', 'archive'];
 const PARAMS = new URLSearchParams(location.search);
 const IN_TAB = PARAMS.get('view') === 'tab';
 // The wallet's usual home: Chrome's side panel, full height next to the page.
@@ -26,6 +27,11 @@ let fee = '0.05';
 let fromKind = 'any';
 let sendNotificationMode = 'standard';
 let receiveRequest = 0;
+let receivingHistoryIndex = null;
+let addressHistoryRequest = 0;
+let addressHistoryKind = 'generation';
+let addressHistoryOffset = 0;
+let recoveryWallet = 'standard';
 let privateAddressRevealed = false;
 let lastAvail = null;
 let lastSend = null;
@@ -368,8 +374,10 @@ const refreshHome = singleFlight(async () => {
   $('hideAssets').textContent = t(app?.settings?.hideAssets ? 'watch.showAmounts' : 'watch.hideAmounts');
   $('hideAssets').setAttribute('aria-pressed', String(Boolean(app?.settings?.hideAssets)));
   Object.assign(addrCache, h.addresses || {});
+  if(h.createdWallets) app.settings.createdWallets=h.createdWallets;
+  if(h.walletSettings) Object.assign(app.settings,h.walletSettings);
   const receivingKind = $('addrText').dataset.kind;
-  if (currentSheet === 'receive' && receivingKind && h.addresses?.[receivingKind] && h.addresses[receivingKind] !== $('addrText').dataset.addr) {
+  if (currentSheet === 'receive' && receivingHistoryIndex === null && receivingKind && h.addresses?.[receivingKind] && h.addresses[receivingKind] !== $('addrText').dataset.addr) {
     await showReceive(receivingKind);
   }
   await Promise.all([renderBalance(h.summary), renderHistory(h.activity), renderAddresses()]);
@@ -583,7 +591,7 @@ $('setupGo').onclick = async () => {
   // without asking when the wallet was created. A new wallet starts at the tip.
   const from = setupMode === 'restore' ? { birthday: 1 } : {};
   if (setupMode === 'restore') {
-    from.restoreMode = document.querySelector('input[name="restoreMode"]:checked')?.value || 'private';
+    from.restoreMode = document.querySelector('input[name="restoreMode"]:checked')?.value || 'modes';
     if (from.restoreMode === 'node') {
       let url;
       try {
@@ -1070,15 +1078,17 @@ function renderFiat() {
 // ------------------------------------------------------------ addresses ---
 
 async function currentAddress(kind) {
-  if (addrCache[kind] && !app?.settings?.freshAddresses && !(kind === 'private-app' && app?.settings?.rotateOnLeak !== false)) return addrCache[kind];
+  if (addrCache[kind] && activeMode(app?.settings)!=='refresh') return addrCache[kind];
   const r = await call('receive', { kind });
   addrCache[kind] = r.address;
   return r.address;
 }
 async function renderAddresses() {
+
   for (const kind of ['generation', 'ec-hybrid']) {
     try {
-      const a = await currentAddress(kind);
+      const result=await call('receive',{kind});const a=result.address;addrCache[kind]=a;
+      $(`kState-${kind}`).textContent=activeMode(app.settings)==='refresh'?t('recv.number',{n:fmtNum(Number(result.index||0)+1)}):activeMode(app.settings)==='encrypted'?t('modes.encryptedNote'):'';
       $(`kAddr-${kind}`).textContent = shortAddr(a, 6, 3);
       $(`kAddr-${kind}`).title = a;
     } catch {
@@ -1258,25 +1268,30 @@ function showTx(e) {
 
 // -------------------------------------------------------------- receive ---
 
-async function showReceive(kind) {
+async function showReceive(kind,index=null) {
+  receivingHistoryIndex=index;
   const request = ++receiveRequest;
   $('copyAddr').disabled = $('dlQr').disabled = $('revealPrivateAddress').disabled = true;
   privateAddressRevealed = false;
-  $('qrBox').hidden = kind === 'private-app';
+  $('qrBox').hidden = activeMode(app.settings) === 'encrypted';
   $('revealPrivateAddress').hidden = false;
-  $('revealPrivateAddress').textContent = t(kind === 'private-app' ? 'private.showAddress' : 'recv.showFull');
-  const rotating = rotateReceivingAddress(app.settings, kind, historyCache);
-  $('receiveModeStatus').textContent = t('private.modeStatus', { s: t(kind === 'private-app' ? 'private.on' : 'private.off') });
-  $('receiveModeStatus').dataset.state = kind === 'private-app' ? 'on' : 'off';
-  $('receiveRotationStatus').textContent = t('fresh.status', { s: t(rotating ? 'private.on' : 'private.off') });
-  $('receiveRotationStatus').dataset.state = rotating ? 'on' : 'off';
+  $('revealPrivateAddress').textContent = t(activeMode(app.settings) === 'encrypted' ? 'private.showAddress' : 'recv.showFull');
+  const profile=activeMode(app.settings);
+  const encrypted=profile==='encrypted';
+  const rotating = profile === 'refresh';
+  $('receiveProfileTitle').textContent = t(`modes.${profile}`);
+  $('receiveModeStatus').textContent = t(encrypted ? 'modes.encryptedNote' : 'modes.normalReceipt');
+  $('receiveModeStatus').dataset.state = 'on';
+  $('receiveRotationStatus').textContent = t(rotating ? 'modes.autoOn' : 'modes.fixed');
+  $('receiveRotationStatus').dataset.state = rotating ? 'on' : 'neutral';
+  $('receiveAddressNumber').hidden = !rotating;
   $('receiveAddressNumber').textContent = '…';
   for (const b of document.querySelectorAll('#s-receive .seg-btn')) {
     b.classList.toggle('on', b.dataset.kind === kind);
     b.setAttribute('aria-selected', String(b.dataset.kind === kind));
   }
-  $('kindHint').textContent = kind === 'private-app' ? t('private.hint') : kind === 'ec-hybrid' ? t('recv.hintShort') : t('recv.hintPq');
-  $('receivePrivateApp').hidden = !privateNotificationsEnabled(app?.settings || { network: 'main' });
+  $('kindHint').textContent = encrypted ? t('modes.encryptedDetails') : rotating ? t('modes.refreshDetails') : kind === 'ec-hybrid' ? t('recv.hintShort') : t('recv.hintPq');
+  $('receivePrivateApp').hidden = true;
   delete $('addrText').dataset.addr;
   delete $('addrText').dataset.kind;
   const qr = $('qrBox');
@@ -1284,11 +1299,12 @@ async function showReceive(kind) {
   qr.textContent = '';
   $('addrText').textContent = '…';
   try {
-    const result = await call('receive', { kind });
+    const result = await call('receive', { kind, index });
     const address = result.address;
     if (request !== receiveRequest) return;
     addrCache[kind] = address;
-    $('receiveAddressNumber').textContent = t('recv.number', { n: fmtNum(Number(result.index || 0) + 1) });
+    $('receiveAddressNumber').textContent = t('recv.number',{n:fmtNum(Number(result.index||0)+1)});
+    if(index!=null && !result.current){$('receiveRotationStatus').textContent=t('addrHistory.stillValid');$('receiveRotationStatus').dataset.state='neutral';}
     $('addrText').textContent = shortAddr(address, 12, 8);
     $('addrText').dataset.addr = address;
     $('addrText').dataset.kind = kind;
@@ -1308,21 +1324,21 @@ async function showReceive(kind) {
   }
 }
 
-function openReceive(kind) {
+function openReceive(kind,index=null) {
   openSheet('receive');
-  showReceive(kind || app?.settings?.addressKind || 'generation');
+  showReceive(kind === 'private-app' ? app.settings.addressKind || 'generation' : kind || app.settings.addressKind || 'generation',index);
 }
 
 $('revealPrivateAddress').onclick = () => {
   privateAddressRevealed = !privateAddressRevealed;
-  const privateMode = $('addrText').dataset.kind === 'private-app';
+  const privateMode = activeMode(app.settings) === 'encrypted';
   if (privateMode) $('qrBox').hidden = !privateAddressRevealed;
   const address = $('addrText').dataset.addr || '';
   $('addrText').textContent = privateAddressRevealed ? address : shortAddr(address, 12, 8);
   $('revealPrivateAddress').textContent = t(privateMode ? privateAddressRevealed ? 'private.hideAddress' : 'private.showAddress' : privateAddressRevealed ? 'recv.hideFull' : 'recv.showFull');
 };
 $('receivePrivateApp').onclick = () => showReceive('private-app');
-$('goReceive').onclick = () => openReceive();
+$('goReceive').onclick = () => openReceive(app.settings.addressKind || 'generation');
 for (const b of document.querySelectorAll('#s-receive .seg-btn')) b.onclick = () => showReceive(b.dataset.kind);
 $('copyAddr').onclick = async () => {
   await navigator.clipboard.writeText($('addrText').dataset.addr || '');
@@ -1336,7 +1352,7 @@ $('dlQr').onclick = () => {
 /** Save the address as a QR picture (PNG), or as a text file when it is too long for a QR code. */
 async function downloadAddress(kind, address) {
   const net = app?.settings?.network === 'main' ? '' : `-${app.settings.network}`;
-  const base = `escanour-${kind === 'private-app' ? 'private-app' : kind === 'ec-hybrid' ? 'short' : 'postquantum'}-address${net}`;
+  const base = `escanour-${activeMode(app?.settings)}-${kind === 'private-app' ? 'private-app' : kind === 'ec-hybrid' ? 'short' : 'postquantum'}-address${net}`;
   let svg;
   try {
     svg = await call('qr', { text: address, dark: '#000000', bg: '#ffffff' });
@@ -1382,6 +1398,7 @@ function openSend(mode = 'standard') {
   setSendNotificationMode(typeof mode === 'string' ? mode : 'standard');
   err('sendErr');
   updateAvailHint();
+  $('sendProfileHint').textContent = t('modes.sendingWith', {m:t(`modes.${activeMode(app.settings)}`)});
   $('sendFeeSummary').textContent = `${fee} NPT`;
   $('sendEncryptedBox').open = Boolean($('sendEncryptedMessage').value);
   openSheet('send');
@@ -1395,7 +1412,7 @@ function updateAvailHint() {
   $('availHint').textContent = t('send.available', { n: fmtAmt(v) });
 }
 
-$('goSend').onclick = () => openSend('standard');
+$('goSend').onclick = () => openSend(activeMode(app.settings) === 'encrypted' ? 'private' : 'standard');
 
 let checkTimer = null;
 let toInfo = null;
@@ -1539,6 +1556,7 @@ $('sendForm').onsubmit = async (ev) => {
   if (name) $('rvTo').textContent = `${name}\n${to}`;
   $('rvFee').textContent = `${fee} NPT`;
   $('rvTotal').textContent = `${addDec(amount, fee)} NPT`;
+  $('confirmSend').dataset.walletMode = activeMode(app.settings);
   $('confirmSend').dataset.to = to;
   $('confirmSend').dataset.amount = amount;
   openSheet('review');
@@ -1548,7 +1566,7 @@ $('confirmSend').onclick = async () => {
   const b = $('confirmSend');
   busy(b, true);
   try {
-    await call('send', { to: b.dataset.to, amount: b.dataset.amount, fee, fromKind, note: $('sendNote').value.trim(), notificationMode: sendNotificationMode, privateMessage: sendNotificationMode === 'private' ? $('sendEncryptedMessage').value : '', waitForFreshBlock: true });
+    await call('send', { walletMode:b.dataset.walletMode, to: b.dataset.to, amount: b.dataset.amount, fee, fromKind, note: $('sendNote').value.trim(), notificationMode: sendNotificationMode, privateMessage: sendNotificationMode === 'private' ? $('sendEncryptedMessage').value : '', waitForFreshBlock: true });
     $('sendTo').value = '';
     $('sendNote').value = '';
     $('sendEncryptedMessage').value = '';
@@ -1869,8 +1887,6 @@ async function openSettings() {
   $('setCurrency').value = s.currency || 'usdt';
   $('setLanguage').value = s.language || 'auto';
   $('setKind').value = s.addressKind || 'generation';
-  $('setPrivateNotifications').checked = privateNotificationsEnabled(s);
-  $('setPrivateNotifications').disabled = s.network === 'main';
   $('setNotif').checked = s.notifications !== false;
   $('setPrices').checked = s.priceLookup !== false;
   $('setLock').value = String(s.autoLockMinutes || 15);
@@ -2822,21 +2838,6 @@ $('setLanguage').onchange = async () => {
   if (s) applyLanguage(s.language);
   $('versionLine').textContent = t('set.version', { v: VERSION });
 };
-$('setPrivateNotifications').onchange = async () => {
-  await savePref({ privateNotifications: $('setPrivateNotifications').checked });
-  $('setPrivateNotifications').checked = privateNotificationsEnabled(app.settings);
-  for (const k of Object.keys(addrCache)) delete addrCache[k];
-  await refreshHome(); renderPrivatePanel();
-};
-$('setFreshAddresses').onchange = async () => {
-  await savePref({ freshAddresses: $('setFreshAddresses').checked });
-  for (const k of Object.keys(addrCache)) delete addrCache[k];
-  await refreshHome(); renderPrivatePanel();
-};
-$('setRotateOnLeak').onchange = async () => {
-  await savePref({ rotateOnLeak: $('setRotateOnLeak').checked });
-  delete addrCache['private-app']; await refreshHome(); renderPrivatePanel();
-};
 $('recoveryExportForm').onsubmit = async ev => {
   ev.preventDefault(); busy($('recoveryExport'), true); err('recoveryExportError');
   try {
@@ -3145,6 +3146,7 @@ chrome.runtime.onMessage.addListener((msg) => {
   if (msg.type === 'contacts') { loadContacts().then(() => { if (!$('v-contacts').hidden) renderContacts(); }); }
   if (msg.type === 'send') {
     if (msg.send.network && app?.settings && msg.send.network !== app.settings.network) return;
+    if ((msg.send.walletMode || 'standard')!==activeMode(app?.settings)) return;
     renderSendCard(msg.send);
     if (currentSheet === 'progress' && (!lastSend?.id || lastSend.id === msg.send.id)) renderProgress(msg.send);
     if (msg.send.status === 'done') refreshHome();
@@ -3170,9 +3172,10 @@ function setSendNotificationMode(mode) {
     button.classList.toggle('on', active); button.setAttribute('aria-checked', String(active));
   }
   $('sendPrivateMode').disabled = app?.settings?.network === 'main';
+  for(const b of document.querySelectorAll('#sendMode [data-mode=standard]'))b.disabled=activeMode(app?.settings)==='encrypted';
   $('sendEncryptedBox').hidden = !privateMode;
-  $('sendModeStatus').textContent = t('private.modeStatus', { s: t(privateMode ? 'private.on' : 'private.off') });
-  $('sendModeStatus').dataset.state = privateMode ? 'on' : 'off';
+  $('sendModeStatus').textContent = `${t(privateMode ? 'modes.encrypted' : 'modes.normalReceipt')} · ${t('private.on')}`;
+  $('sendModeStatus').dataset.state = 'on';
   if (!privateMode) $('sendEncryptedMessage').value = '';
   $('sendModeHint').textContent = t(privateMode ? 'private.sendHint' : 'private.standardHint');
   updateEncryptedMessageCount();
@@ -3185,6 +3188,7 @@ function updateEncryptedMessageCount() {
 for (const button of document.querySelectorAll('#sendMode [data-mode]')) button.onclick = () => setSendNotificationMode(button.dataset.mode);
 $('sendEncryptedMessage').oninput = updateEncryptedMessageCount;
 function clearPrivateText() {
+  receiveRequest++; addressHistoryRequest++; receivingHistoryIndex=null; $('addressHistoryList').textContent='';
   recoveryGeneration++; $('phraseInput').value = '';
   pendingRecoveryFile = ''; $('recoveryImportPassword').value = ''; $('recoveryExportPassword').value = '';
   $('sendEncryptedMessage').value = ''; $('txEncryptedMessage').textContent = ''; $('rvMessage').textContent = '';
@@ -3196,65 +3200,46 @@ function clearPrivateText() {
 function renderPrivatePanel() {
   const settings = app?.settings || { network: 'main' };
   const enabled = privateNotificationsEnabled(settings);
-  $('setPrivateNotifications').checked = enabled;
-  $('setPrivateNotifications').disabled = settings.network === 'main';
-  $('setFreshAddresses').checked = settings.freshAddresses === true;
-  $('setRotateOnLeak').checked = settings.rotateOnLeak !== false;
   const st = app?.status || {};
   const scanning = enabled && (st.syncing || Number(st.tip || 0) > Number(st.height || 0));
   const state = settings.network === 'main' ? 'unavailable' : !enabled ? 'off' : scanning ? 'scanning' : 'ready';
   const text = t(`private.state.${state}`);
-  $('goPrivate').dataset.state = state; $('privateStripState').textContent = text; $('privateState').textContent = text;
+  $('goModes').dataset.state = 'ready'; $('privateStripState').textContent = text; $('privateState').textContent = text;
   $('privateSend').disabled = $('privateReceive').disabled = !enabled;
-  $('privateRecover').disabled = settings.network === 'main';
+  $('privateRecover').disabled = false;
+  $('recoveryPageTitle').textContent=t(recoveryWallet==='encrypted'?'recovery.encryptedTitle':'private.scanTitle');
+  $('openRecoveredEncrypted').hidden=recoveryWallet!=='encrypted'||!settings.createdWallets?.encrypted||settings.network==='main';
+  $('walletRecoveryTitle').textContent=t(`modes.${recoveryWallet}`);
+  $('walletRecoveryHint').textContent=t(recoveryWallet==='encrypted'?'recovery.encryptedHint':'private.restore');
+  $('privateRecover').textContent=t(recoveryWallet==='encrypted'?'recovery.scanEncrypted':'private.recover');
   const start = Number(st.startHeight || 0), height = Number(st.height || 0), tip = Number(st.tip || height);
   const ratio = tip > start ? Math.max(0, Math.min(1, (height - start) / (tip - start))) : 1;
   $('privateScanBar').style.width = `${Math.round(ratio * 100)}%`;
-  $('privateScanBar').parentElement.hidden = $('privateScanText').hidden = settings.network === 'main';
+  $('privateScanBar').parentElement.hidden = $('privateScanText').hidden = false;
   $('privateScanText').textContent = t('private.scanProgress', { h: fmtNum(height), t: fmtNum(tip) });
   const list = historyCache.filter(e => e.toKind === 'private-app' || e.addressKind === 'private-app' || e.privateDowngrade);
   const indicator = (id, label, state) => {
-    $(id).textContent = label; $(id).dataset.state = state;
+    if ($(id)) { $(id).textContent = label; $(id).dataset.state = state; }
     const feature = {privateModeIndicator:'payments',privateFreshIndicator:'fresh',privateLeakIndicator:'leaks',privateBackupIndicator:'backup',privateRecoveryIndicator:'recovery',privateHistoryIndicator:'history'}[id];
     const hero = feature && document.querySelector(`[data-private-feature="${feature}"]`);
     if (hero) { hero.dataset.state = state; const status = hero.querySelector('.private-nav-status'); status.textContent = label; status.dataset.state = state; }
   };
   indicator('privateModeIndicator', t(settings.network === 'main' ? 'private.testOnly' : enabled ? 'private.on' : 'private.off'), enabled ? 'on' : 'off');
-  indicator('privateFreshIndicator', t(settings.freshAddresses === true ? 'private.on' : 'private.off'), settings.freshAddresses === true ? 'on' : 'off');
-  indicator('privateLeakIndicator', t(settings.rotateOnLeak !== false ? 'private.on' : 'private.off'), settings.rotateOnLeak !== false ? 'on' : 'off');
-  indicator('addressFreshIndicator', t(settings.freshAddresses === true ? 'private.on' : 'private.off'), settings.freshAddresses === true ? 'on' : 'off');
-  $('refreshAddresses').hidden = settings.freshAddresses !== true;
   indicator('privateBackupIndicator', t('private.optional'), 'neutral');
-  indicator('privateRecoveryIndicator', settings.network === 'main' ? '—' : `${fmtNum(height)} / ${fmtNum(tip)}`, scanning ? 'on' : 'neutral');
+  indicator('privateRecoveryIndicator', `${fmtNum(height)} / ${fmtNum(tip)}`, scanning ? 'on' : 'neutral');
   indicator('privateHistoryIndicator', fmtNum(list.length), 'neutral');
   $('privateDowngradeAlert').hidden = !list.some(e => e.privateDowngrade);
   $('privateActivity').textContent = ''; list.slice(0, 6).forEach((e, i) => $('privateActivity').append(txRow(e, i)));
   $('privateEmpty').hidden = list.length > 0;
+  renderModes();
 }
-async function openPrivate() {
-  privateTrail = [];
-  renderPrivatePanel(); showScreen('private');
-  app = await call('state');
-  await refreshHome(); renderPrivatePanel();
-}
-$('goPrivate').onclick = openPrivate;
-function openPrivatePage(name) { privateTrail.push(currentScreen); renderPrivatePanel(); showScreen(`private-${name}`); }
-$('addressFreshSettings').onclick = () => openPrivatePage('fresh');
-$('refreshAddresses').onclick = async () => {
-  const before = ['generation', 'ec-hybrid', 'private-app'].map(k => addrCache[k]).join('|');
-  busy($('refreshAddresses'), true);
-  try {
-    await call('sync'); await refreshHome();
-    const after = ['generation', 'ec-hybrid', 'private-app'].map(k => addrCache[k]).join('|');
-    toast(t(before === after ? 'fresh.unchanged' : 'fresh.updated'));
-  } catch (e) { toast(String(e.message || e)); }
-  finally { busy($('refreshAddresses'), false); }
-};
+$('goModes').onclick = openModes;
+function openPrivatePage(name,profile=activeMode(app.settings)) { if(name==='recovery')recoveryWallet=profile;privateTrail.push(currentScreen);renderPrivatePanel();showScreen(`private-${name}`); }
 for (const b of document.querySelectorAll('.private-route')) b.onclick = () => {
-  openPrivatePage(b.dataset.privatePage);
+  openPrivatePage(b.dataset.privatePage,b.dataset.recoveryWallet || activeMode(app.settings));
 };
 for (const b of document.querySelectorAll('.to-private')) b.onclick = () => {
-  const previous = privateTrail.pop() || 'private';
+  const previous = privateTrail.pop() || 'modes';
   renderPrivatePanel(); showScreen(previous);
 };
 $('privateSend').onclick = () => openSend('private');
@@ -3269,3 +3254,82 @@ $('privateRecover').onclick = async () => {
   } catch (e) { err('privateRecoveryError', e); }
   finally { busy(button, false); }
 };
+
+function renderModes() {
+  const s=app?.settings || {network:'main'},mode=activeMode(s);
+  const created={standard:true,refresh:s.createdWallets?.refresh===true,encrypted:s.createdWallets?.encrypted===true};
+  const state=(id,on,selected=false)=>{ $(id).textContent=selected?t('modes.selected'):t(on?'modes.ready':'modes.createShort');$(id).dataset.state=on?'on':'off'; };
+  state('modeGenerationState',true,mode==='standard');state('generationHeroState',true,mode==='standard');
+  state('modeRefreshState',created.refresh,mode==='refresh');state('refreshHeroState',created.refresh,mode==='refresh');
+  state('modeEncryptedState',created.encrypted,mode==='encrypted');
+  $('refreshHero').dataset.state=created.refresh?'on':'off';
+  $('createRefreshWallet').hidden=created.refresh;$('useRefreshMode').hidden=!created.refresh;
+  $('createEncryptedWallet').hidden=created.encrypted;$('useEncryptedMode').hidden=!created.encrypted;
+  $('createEncryptedWallet').disabled=s.network==='main';
+  if(s.network==='main') $('modeEncryptedState').textContent=t('private.testOnly');
+  for(const b of document.querySelectorAll('.use-mode')) b.textContent=t('modes.open');
+  $('modeHomeName').textContent=t(`modes.${mode}`);
+  $('modeHomeHint').textContent=t(`modes.${mode}Hint`);
+  $('modeHomeIcon').setAttribute('href',mode==='encrypted'?'#i-lock':mode==='refresh'?'#i-change':'#i-card');
+  $('modeHomeStatus').textContent=t(mode==='refresh'?'private.on':'modes.selected');$('modeHomeStatus').dataset.state='on';
+  $('modeHomeAddress').hidden=true;
+  $('addressHistoryOpen').hidden=mode!=='refresh';
+  $('encryptedRecoveryOpen').hidden=mode!=='encrypted';
+  $('modeHomeCard').dataset.mode=mode;document.body.dataset.wallet=mode;
+  $('privateStripState').textContent=t(`modes.${mode}`);$('goModes').title=t('modes.title');
+  $('sendMode').hidden=true;
+
+}
+async function openModes() {privateTrail=[];app=await call('state');renderPrivatePanel();showScreen('modes');}
+$('modeHomeManage').onclick=openModes;$('modeHomeCard').onclick=openModes;
+for(const b of document.querySelectorAll('.mode-route'))b.onclick=async()=>{
+  const mode=b.dataset.modePage;
+  if(mode!==activeMode(app.settings)&&(mode==='standard'||app.settings.createdWallets?.[mode])) {
+    try{await call('selectMode',{mode});app=await call('state');for(const k of Object.keys(addrCache))delete addrCache[k];lastSummary=null;await refreshHome();showTab('addr');showScreen('home');}
+    catch(e){toast(e.message);}return;
+  }
+  privateTrail=['modes'];renderPrivatePanel();showScreen(mode==='encrypted'?'private-payments':`mode-${mode}`);
+};
+for(const b of document.querySelectorAll('.to-modes'))b.onclick=openModes;
+for(const b of document.querySelectorAll('.use-mode'))b.onclick=async()=>{
+  busy(b,true);try{await call('selectMode',{mode:b.dataset.selectMode});app=await call('state');for(const k of Object.keys(addrCache))delete addrCache[k];await refreshHome();showTab('addr');showScreen('home');}
+  catch(e){toast(e.message);}finally{busy(b,false);renderModes();}
+};
+for(const b of document.querySelectorAll('.create-subwallet'))b.onclick=async()=>{
+  const mode=b.dataset.createWallet;const error=mode==='refresh'?'refreshWalletError':'encryptedWalletError';busy(b,true);err(error);
+  try{await call('createSubwallet',{mode});app=await call('state');for(const k of Object.keys(addrCache))delete addrCache[k];await refreshHome();renderModes();showScreen('home');}
+  catch(e){err(error,e);}finally{busy(b,false);}
+};
+
+$('encryptedRecoveryOpen').onclick=()=>openPrivatePage('recovery','encrypted');
+$('restorePrivateSeed').onclick=()=>startSetup('restore',Boolean(app?.exists));
+async function loadAddressHistory(reset=false) {
+  const request=++addressHistoryRequest;
+  if(reset){addressHistoryOffset=0;$('addressHistoryList').textContent='';}
+  err('addressHistoryError');$('addressHistoryLoading').hidden=false;busy($('addressHistoryMore'),true);
+  for(const b of document.querySelectorAll('[data-history-kind]'))b.classList.toggle('on',b.dataset.historyKind===addressHistoryKind);
+  try {
+    const result=await call('addressHistory',{kind:addressHistoryKind,offset:addressHistoryOffset});
+    if(request!==addressHistoryRequest||currentScreen!=='address-history')return;
+    if(result.profile!==activeMode(app.settings))throw new Error('Sub-wallet changed. Open address history again.');
+    for(const row of result.rows){
+      const el=document.createElement('div');el.className='address-history-row';
+      const view=document.createElement('button');view.className='address-history-view';
+      const title=document.createElement('b');title.textContent=t('recv.number',{n:fmtNum(row.index+1)});
+      const status=document.createElement('span');status.className='address-history-status';status.textContent=t(row.current?'addrHistory.current':'addrHistory.previous');status.dataset.current=String(row.current);
+      const top=document.createElement('span');top.className='address-history-heading';top.append(title,status);
+      const address=document.createElement('small');address.className='mono';address.textContent=shortAddr(row.address,14,10);
+      const detail=document.createElement('small');detail.textContent=row.receipts?t('addrHistory.receipts',{n:fmtNum(row.receipts)}):t('addrHistory.unused');
+      view.append(top,address,detail);view.onclick=()=>openReceive(result.kind,row.index);
+      const copy=document.createElement('button');copy.className='chip';copy.textContent=t('recv.copy');copy.setAttribute('aria-label',`${t('recv.copy')} ${title.textContent}`);
+      copy.onclick=async()=>{try{await navigator.clipboard.writeText(row.address);toast(t('recv.copiedKind',{k:kindLabel(result.kind)}));}catch(e){toast(e.message);}};
+      el.append(view,copy);$('addressHistoryList').append(el);
+    }
+    addressHistoryOffset=result.next;$('addressHistoryMore').hidden=result.next>=result.total;
+    $('addressHistoryEmpty').hidden=result.rows.some(r=>r.receipts>0)||result.total>1;
+  }catch(e){if(request===addressHistoryRequest)err('addressHistoryError',e);}
+  finally{if(request===addressHistoryRequest){$('addressHistoryLoading').hidden=true;busy($('addressHistoryMore'),false);}}
+}
+$('addressHistoryOpen').onclick=()=>{showScreen('address-history');addressHistoryKind=app.settings.addressKind||'generation';loadAddressHistory(true);};
+for(const b of document.querySelectorAll('[data-history-kind]'))b.onclick=()=>{addressHistoryKind=b.dataset.historyKind;loadAddressHistory(true);};
+$('addressHistoryMore').onclick=()=>loadAddressHistory(false);

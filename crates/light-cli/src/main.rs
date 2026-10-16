@@ -19,7 +19,7 @@ use std::collections::VecDeque;
 use std::path::PathBuf;
 use std::time::{Instant, SystemTime, UNIX_EPOCH};
 
-use anyhow::{anyhow, bail, Context, Result};
+use anyhow::{Context, Result, anyhow, bail};
 use light_core::keys::Keys;
 use light_core::send::{self, PreparedSend, SendRequest};
 use light_core::state::WalletState;
@@ -103,6 +103,17 @@ fn keys(args: &Args) -> Result<Keys> {
     let phrase = std::env::var("NEPTUNE_PHRASE")
         .map_err(|_| anyhow!("set NEPTUNE_PHRASE to your 18-word seed phrase"))?;
     Keys::from_phrase(&phrase, parse_network(&args.network)?)
+}
+
+fn profile() -> Result<light_core::profiles::Profile> {
+    light_core::profiles::Profile::parse(
+        &std::env::var("NEPTUNE_SUBWALLET").unwrap_or("standard".into()),
+    )
+}
+fn address_kind() -> Result<light_core::keys::AddressKind> {
+    light_core::keys::AddressKind::parse(
+        &std::env::var("NEPTUNE_ADDRESS_KIND").unwrap_or("generation".into()),
+    )
 }
 
 fn load(args: &Args) -> Result<WalletState> {
@@ -220,7 +231,7 @@ fn main() -> Result<()> {
             );
         }
         "balance" => {
-            let st = load(&args)?;
+            let st = light_core::profiles::filtered(&load(&args)?, profile()?);
             let b =
                 st.balance(light_core::neptune_primitives::timestamp::Timestamp::millis(now_ms()));
             println!("height:      {}", st.height);
@@ -233,14 +244,28 @@ fn main() -> Result<()> {
             );
         }
         "private-address" => {
-            println!("{}", light_core::private_notification::AppAddress::for_keys(&keys(&args)?)?);
+            println!(
+                "{}",
+                light_core::private_notification::AppAddress::for_kind_index(
+                    &keys(&args)?,
+                    address_kind()?,
+                    0
+                )?
+            );
         }
         "address" => {
             let k = keys(&args)?;
-            let mut st = load(&args)?;
-            let i = st.take_receiving_index();
-            save(&args, &st)?;
-            println!("{}", k.receiving_address_string(i)?);
+            let st = load(&args)?;
+            let profile = profile()?;
+            let kind = address_kind()?;
+            let index = light_core::profiles::receive_index(&st, profile, kind);
+            let address = if profile == light_core::profiles::Profile::Encrypted {
+                light_core::private_notification::AppAddress::for_kind_index(&k, kind, index)?
+            } else {
+                k.address(light_core::profiles::key_for(profile, kind, index)?)
+                    .to_bech32m(k.network())?
+            };
+            println!("{address}");
         }
         "release" => {
             let mut st = load(&args)?;
@@ -269,6 +294,9 @@ fn main() -> Result<()> {
             let mut pinned = None;
             for attempt in 1..=3 {
                 let req = SendRequest {
+                    profile: light_core::profiles::Profile::parse(
+                        &std::env::var("NEPTUNE_SUBWALLET").unwrap_or("standard".into()),
+                    )?,
                     to: &to,
                     amount: send::parse_amount(&amount)?,
                     fee: send::parse_amount(&fee)?,
@@ -328,11 +356,15 @@ fn main() -> Result<()> {
             println!("  sync                               catch up with the server");
             println!("  balance                            show balance");
             println!("  address                            print a fresh receiving address");
-            println!("  private-address                    permanent experimental test-network app address");
+            println!(
+                "  private-address                    permanent experimental test-network app address"
+            );
             println!(
                 "  send ADDRESS AMOUNT FEE [--workers N]  build, prove in parallel, broadcast"
             );
-            println!("  release                            free inputs of transactions that never confirmed");
+            println!(
+                "  release                            free inputs of transactions that never confirmed"
+            );
         }
     }
     Ok(())

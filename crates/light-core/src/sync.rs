@@ -50,6 +50,7 @@ pub struct BlockEvents {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct UtxoEvent {
     pub aocl_index: u64,
+    pub wallet_mode: String,
     /// Display string, e.g. "12.5".
     pub amount: String,
     /// Received on a change (symmetric) key: our own money coming back, not a
@@ -226,6 +227,11 @@ pub fn apply_block(
             scan_keys.push(candidate);
         }
     }
+    for candidate in keys.profile_scan_keys(state) {
+        if !scan_keys.iter().any(|(r, _)| *r == candidate.0) {
+            scan_keys.push(candidate);
+        }
+    }
     let spending_keys: Vec<SpendingKey> = scan_keys.iter().map(|(_, k)| k.clone()).collect();
     // Coin -> the key it belongs to (None: look it up by lock script).
     let mut incoming: HashMap<AdditionRecord, (IncomingUtxo, Option<KeyRef>)> =
@@ -386,6 +392,7 @@ pub fn apply_block(
                     .ok_or_else(|| anyhow!("decrypted a UTXO no scanned key can unlock"))?,
             };
             events.received.push(UtxoEvent {
+                wallet_mode: crate::profiles::profile_of(key).name().into(),
                 aocl_index: proof.aocl_leaf_index,
                 amount: iu.utxo.get_native_currency_amount().to_string(),
                 is_change: key.is_change(),
@@ -393,6 +400,7 @@ pub fn apply_block(
                 private_message: private_messages.get(addition).cloned(),
                 address_kind: match key {
                     _ if exposed_private.contains(addition) => Some("private-unprotected".into()),
+
                     KeyRef::Generation(_) => Some("generation".into()),
                     KeyRef::EcHybrid(_) => Some("ec-hybrid".into()),
                     KeyRef::Symmetric(_) => None,
@@ -456,6 +464,7 @@ pub fn apply_block(
         let tx_id = u.reserved_by.take().map(|r| r.tx_id);
         u.spent_height = Some(height);
         events.spent.push(UtxoEvent {
+            wallet_mode: crate::profiles::profile_of(u.key).name().into(),
             aocl_index: u.aocl_index(),
             amount: u.amount().to_string(),
             is_change: u.key.is_change(),
@@ -509,14 +518,21 @@ pub fn apply_block(
 
 fn bump_indices(state: &mut WalletState, key: KeyRef) {
     match key {
-        KeyRef::Generation(i) if i >= state.next_generation_index => {
+        KeyRef::Generation(i)
+            if crate::profiles::profile_of(key) == crate::profiles::Profile::Standard
+                && i >= state.next_generation_index =>
+        {
             state.next_generation_index = i + 1;
         }
-        KeyRef::Symmetric(i) if i >= state.next_symmetric_index => {
-            state.next_symmetric_index = i + 1;
+        KeyRef::Symmetric(raw)
+            if crate::profiles::local_index(key) >= state.next_symmetric_index =>
+        {
+            state.next_symmetric_index = crate::profiles::local_index(KeyRef::Symmetric(raw)) + 1;
         }
         KeyRef::EcHybrid(i)
-            if crate::keys::private_index(key).is_none() && i >= state.next_ec_hybrid_index =>
+            if crate::keys::private_index(key).is_none()
+                && crate::profiles::profile_of(key) == crate::profiles::Profile::Standard
+                && i >= state.next_ec_hybrid_index =>
         {
             state.next_ec_hybrid_index = i + 1;
         }

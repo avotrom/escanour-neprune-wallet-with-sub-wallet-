@@ -46,8 +46,8 @@ Put it behind HTTPS (for example with Caddy), then enter its URL in Settings. Do
 - **JSON-RPC errors** arrive with HTTP 200 and an `error` object. The extension surfaces them as `node: {...}`.
 - **"Not confirmable"** (`SubmitTransactionError::NotConfirmable`) means the transaction was built against a mutator set the node no longer accepts. The wallet syncs, rebuilds with the same inputs and proves again.
 
-## Experimental private app notifications (0.22 prototype)
+## Experimental encrypted app notifications (0.23 prototype)
 
 The wrapper uses the same block-download and transaction-submission endpoints above. It adds no RPC endpoint and never forwards decrypted notifications to a public node. This light wallet checks notifications and maintains membership proofs locally. See [PRIVATE-NOTIFICATIONS.md](PRIVATE-NOTIFICATIONS.md).
 
-The ordinary address index cannot discover these custom envelopes. This build forces full scans for test-network seed restores, including on a fresh installation. If the user selects their own node, that node is still used as the block source. Mainnet fast-restore modes are unchanged; private app notifications are disabled on mainnet.
+The ordinary address index cannot discover these custom envelopes or reliably enumerate all sub-wallet branches. This build forces full scans for seed restores on every network, including on a fresh installation. If the user selects their own node, that node is still used as the block source. Encrypted app notifications are disabled on mainnet.

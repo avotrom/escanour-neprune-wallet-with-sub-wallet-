@@ -38,7 +38,7 @@ Two wasm modules keep start-up cheap:
 The wallet asks the server for blocks by height and does everything else itself. Per block (`light-core/src/sync.rs`):
 
 1. **Check the hash chain.** `RpcWalletBlock::hash()` recomputes the real block hash from the kernel and the `proof_leaf` digest, so the proof itself is never downloaded. The block's `prev_block_digest` must equal the wallet's tip hash; otherwise it is a reorg.
-2. **Find incoming coins.** Each announcement carries a `receiver_identifier` in slot 1. `SpendingKey::scan_announcements_for_keys` looks it up in a table of the wallet's keys and decrypts only matches.
+2. **Find incoming coins.** Ordinary payment announcements carry a `receiver_identifier` in slot 1. `SpendingKey::scan_announcements_for_keys` looks it up in a table of the wallet's keys and decrypts only matches. Encrypted app envelopes use a shared marker and trial decryption with one seed-derived scanning key, followed by normal notification and ownership checks.
 3. **Update membership proofs.** For every addition and removal in `BlockKernel::mutator_set_update` (guesser-fee outputs included), the wallet updates the membership proof of each coin it owns. This is neptune-core's own full-node algorithm (`process_inputs_and_outputs_maintain_mps`), run on the wallet's few coins.
 4. **Detect spends.** A removal record is the spent coin's absolute index set. Matching it against the wallet's own index sets marks coins spent without asking anyone.
 5. **Check the accumulator.** The rebuilt mutator set accumulator must equal the one the block commits to (`body.mutator_set_accumulator_after(guesser fees)`). A mismatch rejects the block.
@@ -53,7 +53,7 @@ The wallet asks the server for blocks by height and does everything else itself.
 | EC Hybrid ("Short address") | receiving | 97-byte address, small notifications; notification privacy relies on elliptic curves |
 | Symmetric | change only | smallest announcements; its bech32m form contains the secret key, so it is never shown |
 
-Spending is hash-based for every kind. Fixed receiving addresses use index 0 by default. The Private controls page can enable rotation after confirmed receipts for normal and private payment keys. Normal addresses use the existing deterministic counters and key lookahead. Private app children use a reserved EC Hybrid range plus one seed-derived scanning key; the child index is encrypted in the v2 envelope for direct recovery. Old addresses stay valid. See PRIVATE-NOTIFICATIONS.md for the experimental protocol and limits.
+Spending is hash-based for every kind. Standard keeps fixed receiving addresses. Optional Auto-refresh advances each address type after a confirmed payment and keeps its previous addresses valid and visible in history. Optional Encrypted has dedicated Generation and EC Hybrid app addresses. Each sub-wallet has disjoint receiving and symmetric change branches, separate funds and activity, and the same root phrase. Encrypted v3 carries the receiving kind and child index inside an envelope opened with one seed-derived scanning key. See [SUB-WALLETS.md](SUB-WALLETS.md) and [PRIVATE-NOTIFICATIONS.md](PRIVATE-NOTIFICATIONS.md).
 
 A payment can be limited to coins received on one kind of address ("Pay from"). The recipient's kind is shown before sending; symmetric keys and viewing keys are refused as recipients because they are secrets.
 
@@ -119,8 +119,8 @@ Blocks are fetched in batches (up to 100 blocks, the node's default cap), with u
 
 ### Building (`light-core/src/send.rs`)
 
-1. **Coin selection:** largest coins first until the amount plus fee is covered, at most 4 inputs. Each input adds proving work, so fewer inputs keep proving within browser memory.
-2. **Outputs:** the recipient's output, plus change to a fresh symmetric key. Symmetric announcements are smaller, and a new key per transaction avoids linking change outputs.
+1. **Coin selection:** only the selected sub-wallet's coins, largest first until the amount plus fee is covered, at most 4 inputs. A shortfall cannot draw from another sub-wallet. Each input adds proving work.
+2. **Outputs:** the recipient's output, plus change to a fresh symmetric key in the same sub-wallet. An encrypted destination uses an off-chain inner notification wrapped in a custom announcement before the witness and proofs are generated.
 3. **Lustration:** if the network's lustration rule applies to an input, the transaction must publish that input's amount. The wallet stops and asks the user first.
 4. **Witness:** `TransactionDetails::primitive_witness()` from neptune-wallet.
 

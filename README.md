@@ -1,21 +1,10 @@
-# Escanour Neptune Wallet 0.22.0 — experimental private notifications
+# Escanour Neptune Wallet 0.23.0 — three sub-wallets
 
-Source prototype based on the supplied 0.21.0 ZIP. See [docs/PRIVATE-NOTIFICATIONS.md](docs/PRIVATE-NOTIFICATIONS.md) for the feasibility review, protocol, usage and limitations, and [RELEASE-0.22.md](RELEASE-0.22.md) for actual validation results. Private notifications are opt-in and disabled on mainnet. Fresh WASM builds are required.
+Standard is created by default. Create Auto-refresh or Encrypted only when wanted. Each sub-wallet has its own balance, Generation and EC Hybrid addresses, activity and change. Auto-refresh advances after confirmed payments locally; Encrypted adds a hidden receiver notification and optional message on test networks.
 
-The Private controls icon beside Tor and Settings opens a compact menu with a separate Tor-style page for each feature. It groups private sending/receiving, optional fresh receiving addresses, detected-leak warnings, encrypted seed-only recovery files and scanning details. Read [docs/PRIVATE-MODE-REVIEW.md](docs/PRIVATE-MODE-REVIEW.md) for the address-linking, mixing, performance and seed-recovery analysis. No Automatic mixing control is included; address rotation does not erase past disclosure.
+See [docs/SUB-WALLETS.md](docs/SUB-WALLETS.md) for the current design, privacy, performance and seed recovery, [docs/PRIVATE-NOTIFICATIONS.md](docs/PRIVATE-NOTIFICATIONS.md) for wire v3, and [RELEASE-0.23.md](RELEASE-0.23.md) for validation. No address URL/service, old Private controls menu or automatic mixing is included. Privacy check is in Settings. The supplied image guides the charcoal/violet interface.
 
-## Wallet overview
-
-See [RELEASE-0.22.md](RELEASE-0.22.md) for this prototype’s validation results and build requirements. The earlier watch-only changes are documented in [RELEASE-0.21.md](RELEASE-0.21.md).
-
-A private light wallet for [Neptune Cash](https://neptune.cash) as a Chrome extension, with no node to run and no change to Neptune.
-
-- **Private sync.** The wallet downloads blocks by height from any public neptune-core node, scans them locally, and keeps its own membership proofs. The server learns only which heights you asked for. It never sees an address, a key, or which coins are yours.
-- **Fast start.** A new wallet starts at the current tip: no history to download.
-- **Proving on your device, in parallel.** A transaction's ProofCollection is split into independent jobs that run in separate Web Workers, each with its own wasm memory.
-- **Uses Neptune as it is.** Only existing JSON-RPC endpoints (`chain_height`, `wallet_getBlocks`, `wallet_submitTransaction`). The only patch is a small wasm-compatibility diff applied to a vendored copy of neptune-core inside this repo.
-
-> **Status: experimental source prototype.** Targets Neptune commit `cc3fca9`, crates 0.19. Read [RELEASE-0.22.md](RELEASE-0.22.md) for checks actually completed. The private notification mode is test-network-only and needs independent review and live-node validation. Build fresh WASM modules before installation.
+This is an experimental source prototype based on the supplied 0.21 ZIP and unchanged Neptune pin. Fresh WASM modules must be built. Encrypted mode is disabled on mainnet and needs independent review and live-node validation. GitHub Actions skips light-core unit tests; JavaScript checks, compile checks and builds remain. Local Rust tests are retained.
 
 ## How it works
 

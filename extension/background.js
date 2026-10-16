@@ -1,3 +1,4 @@
+import { activeMode, activityForMode, addressKind } from './lib/wallet-modes.js';
 import { requirePrivateNotifications, notificationRestoreMode, validatePrivateSend, rotateReceivingAddress } from './lib/private-notifications.js';
 import { encryptRecoveryFile } from './lib/recovery-file.js';
 // Service worker: wallet state, sync, and the send pipeline.
@@ -322,7 +323,7 @@ async function recordBlockEvents(key, events) {
       if (ids.has(id)) continue;
       ids.add(id);
       fresh.push({
-        kind: 'received', amount: u.amount, height: ev.height, at: ev.timestamp_ms,
+        kind: 'received', walletMode:u.wallet_mode || (u.private_message!=null||u.address_kind==='private-unprotected'?'encrypted':'standard'), amount: u.amount, height: ev.height, at: ev.timestamp_ms,
         addressKind: u.address_kind === 'private-unprotected' ? 'private-unprotected' : u.private_message != null ? 'private-app' : u.address_kind,
         privateDowngrade: u.address_kind === 'private-unprotected',
         encryptedMessage: u.private_message ?? null, status: 'confirmed', id,
@@ -339,7 +340,7 @@ async function recordBlockEvents(key, events) {
         const id = `s:${ev.height}:${u.aocl_index}`;
         if (ids.has(id)) continue;
         ids.add(id);
-        fresh.push({ kind: 'spent-elsewhere', amount: u.amount, height: ev.height, at: ev.timestamp_ms, status: 'confirmed', id });
+        fresh.push({ kind: 'spent-elsewhere', walletMode:u.wallet_mode || 'standard', amount: u.amount, height: ev.height, at: ev.timestamp_ms, status: 'confirmed', id });
       }
     }
   }
@@ -1401,7 +1402,7 @@ async function offscreenBusyWith() {
 
 // Send records live in IndexedDB. Who you pay, how much, and your note are
 // sealed with the vault key, so a locked wallet's disk shows only progress.
-const SEALED_FIELDS = ['to', 'amount', 'fee', 'view', 'pinned', 'toKind', 'fromKind', 'note', 'privateMessage', 'notificationMode', 'error'];
+const SEALED_FIELDS = ['to', 'amount', 'fee', 'view', 'pinned', 'toKind', 'fromKind', 'note', 'privateMessage', 'notificationMode', 'walletMode', 'error'];
 const enc = new TextEncoder();
 const dec = new TextDecoder();
 
@@ -1459,6 +1460,7 @@ async function startSend(req) {
     network,
     to: req.to,
     toKind: req.toKind || null,
+    walletMode: req.walletMode || 'standard',
     note: String(req.note || '').slice(0, 200),
     privateMessage: String(req.privateMessage || ''),
     notificationMode: req.notificationMode || 'auto',
@@ -1546,6 +1548,7 @@ function runSend(id) {
         rec.acceptLustration,
         rec.fromKind || 'any',
         rec.privateMessage || undefined,
+        rec.walletMode || 'standard',
       );
       rec.view = out.view;
       rec.pinned = out.view.input_aocl_indices;
@@ -1670,7 +1673,7 @@ async function handleSubmitted(id) {
         list.unshift({
           kind: 'sent', id: `t:${rec.view.tx_id}`, txId: rec.view.tx_id, status: 'pending',
           amount: rec.view.amount, fee: rec.view.fee, change: rec.view.change, to: rec.to,
-          toKind: rec.toKind || null, note: rec.note || '', encryptedMessage: rec.toKind === 'private-app' ? rec.privateMessage || '' : null, at: Date.now(), atHeight: height, height: null,
+          walletMode: rec.walletMode || 'standard', toKind: rec.toKind || null, note: rec.note || '', encryptedMessage: rec.toKind === 'private-app' ? rec.privateMessage || '' : null, at: Date.now(), atHeight: height, height: null,
         });
         await writeActivity(key, list, rec.network);
       }
@@ -1748,10 +1751,11 @@ async function resumeSends() {
 }
 
 async function latestSend(network) {
+  const profile=activeMode(await settingsStore.load());
   let latest = null;
   for (const id of await db.keys(db.STORES.sends)) {
     const rec = await getSend(id);
-    if (rec?.network !== network) continue;
+    if (rec?.network !== network || (rec.walletMode || 'standard')!==profile) continue;
     if (!latest || rec.createdAt > latest.createdAt) latest = rec;
   }
   return latest ? { ...latest, prepared: undefined, sealed: undefined } : null;
@@ -1855,19 +1859,29 @@ async function sealOldSends() {
   }
 }
 
-function receivingAddress(wallet, settings, state, activity, kind) {
-  const rotate = rotateReceivingAddress(settings, kind, activity);
-  if (kind === 'private-app') {
-    requirePrivateNotifications(settings);
-    return rotate ? wallet.privateReceiveAddress(state, true) : { index: 0, address: wallet.privateAppAddress(), kind };
-  }
-  if (!['generation', 'ec-hybrid'].includes(kind)) throw new Error('Unknown receiving address kind');
-  if (!rotate) return { index: 0, address: wallet.addressAt(kind, 0), kind };
-  const r = wallet.receiveAddress(state, kind, true);
-  return { index: r.index, address: r.address, kind };
+function receivingAddress(wallet, settings, state, activity, kind, profile=activeMode(settings)) {
+  if(profile==='encrypted') requirePrivateNotifications(settings);
+  kind=addressKind(kind || settings.addressKind);
+  return wallet.profileReceiveAddress(state,profile,kind);
 }
+function profileState(wallet,state,profile){return wallet.profileState(state,profile);}
 
 const commands = {
+  async createSubwallet({ mode }) {
+    const { s }=await requireWallet();
+    if(!['refresh','encrypted'].includes(mode)) throw new Error('Choose Auto-refresh or Encrypted.');
+    if(mode==='encrypted' && s.network==='main') throw new Error('Encrypted notifications are experimental and disabled on mainnet.');
+    if(s.createdWallets?.[mode]) throw new Error('This sub-wallet already exists. Open it from Sub-wallets.');
+    return settingsStore.save({createdWallets:{...s.createdWallets,standard:true,[mode]:true},activeMode:mode,...(mode==='refresh'?{autoRefresh:true}:{privateNotifications:true})});
+  },
+  async selectMode({ mode }) {
+    const { s } = await requireWallet();
+    if (!['standard','refresh','encrypted'].includes(mode)) throw new Error('Unknown sub-wallet.');
+    if (mode !== 'standard' && !s.createdWallets?.[mode]) throw new Error('Create this sub-wallet first.');
+    if (mode === 'encrypted') requirePrivateNotifications(s);
+    if (mode === 'refresh' && s.autoRefresh !== true) throw new Error('Enable Auto-refresh first.');
+    return settingsStore.save({ activeMode: mode });
+  },
   async exportRecovery({ password }) {
     await requireWallet();
     const phrase = await vault.checkPassword(String(password || ''));
@@ -1927,7 +1941,7 @@ const commands = {
     dropArchive();
     await chrome.storage.session.clear();
     // The start height is not kept in plain settings: it would date the wallet.
-    await settingsStore.save({ ...prev, network, birthday: null });
+    await settingsStore.save({ ...prev, network, birthday: null, activeMode: 'standard', privateNotifications: false, autoRefresh: false, createdWallets:{standard:true,refresh:false,encrypted:false}, freshAddresses: false, rotateOnLeak: false });
     const key = await vault.create(password, clean);
     await saveSnapshot(key, start, state, network);
     const fastPending = restoring && ['fast', 'node'].includes(effectiveRestoreMode) ? effectiveRestoreMode : null;
@@ -1960,16 +1974,28 @@ const commands = {
     const { key, wallet, s } = await requireWallet();
     const snap = await latestSnapshot(key);
     if (!snap) throw new Error('NO_STATE');
+    // Seed restoration discovers funded optional sub-wallets without a settings backup.
+    const found={...s.createdWallets,standard:true};let discovered=false;
+    for(const profile of ['refresh','encrypted']) {
+      if(!found[profile] && (profile!=='encrypted'||s.network!=='main')) {
+        const summary=wallet.summary(profileState(wallet,snap.state,profile),Date.now());
+        if(summary.utxos.length) {found[profile]=true;discovered=true;}
+      }
+    }
+    if(discovered) Object.assign(s,await settingsStore.save({createdWallets:found,...(found.refresh?{autoRefresh:true}:{}),...(found.encrypted?{privateNotifications:true}:{})}));
     const [activity, contacts, privacy] = await Promise.all([
       readActivity(key),
       readContacts(key),
       commands.privacy().catch(() => null),
     ]);
     return {
-      summary: wallet.summary(snap.state, Date.now()),
-      addresses: Object.fromEntries(['generation', 'ec-hybrid', ...(s.network !== 'main' && s.privateNotifications === true ? ['private-app'] : [])]
-        .map(kind => [kind, receivingAddress(wallet, s, snap.state, activity, kind).address])),
-      activity,
+      walletSettings:{activeMode:activeMode(s),createdWallets:s.createdWallets,autoRefresh:s.autoRefresh,privateNotifications:s.privateNotifications},
+      createdWallets:s.createdWallets,
+      profile: activeMode(s),
+      allActivity: activity,
+      summary: wallet.summary(profileState(wallet,snap.state,activeMode(s)), Date.now()),
+      addresses: Object.fromEntries(['generation','ec-hybrid'].map(kind=>[kind,receivingAddress(wallet,s,snap.state,activity,kind).address])),
+      activity: activityForMode(activity,activeMode(s)),
       contacts,
       privacy,
       watch: decorateWatch(wallet.watchList(snap.state, Date.now()), (await watchDataFor(key, wallet, snap)).prefs),
@@ -1978,20 +2004,20 @@ const commands = {
   },
 
   async summary() {
-    const { key, wallet } = await requireWallet();
+    const { key, wallet, s } = await requireWallet();
     const snap = await latestSnapshot(key);
     if (!snap) throw new Error('NO_STATE');
-    return wallet.summary(snap.state, Date.now());
+    return wallet.summary(profileState(wallet,snap.state,activeMode(s)), Date.now());
   },
 
   async privacy() {
-    const { key, s } = await requireWallet();
+    const { key, s, wallet } = await requireWallet();
     await wasm();
     const snap = await latestSnapshot(key);
     if (!snap) throw new Error('NO_STATE');
     let spends = null;
     if (s.exactPrivacy !== false) spends = await spendIndex(s.network, snap.height);
-    const report = light.privacyReport(snap.state, Date.now(), spends ? new Float64Array(spends) : undefined);
+    const report = light.privacyReport(profileState(wallet,snap.state,activeMode(s)), Date.now(), spends ? new Float64Array(spends) : undefined);
     const st = await status();
     report.spendIndex = st.spendIndex || null;
     const srv = settingsStore.serversFor(s);
@@ -2028,11 +2054,23 @@ const commands = {
   },
 
   /** Fixed by default; optional rotation follows confirmed state. */
-  async receive({ kind = 'generation' } = {}) {
+  async receive({ kind, index } = {}) {
     const { wallet, s, key } = await requireWallet();
-    if (kind === 'private-app') requirePrivateNotifications(s);
+    kind ||= s.addressKind || 'generation';
+    const profile=kind==='private-app'?'encrypted':activeMode(s);
+    if (kind === 'private-app') {requirePrivateNotifications(s);kind=s.addressKind || 'generation';}
     const snap = await latestSnapshot(key);
-    return receivingAddress(wallet, s, snap?.state, await readActivity(key), kind);
+    const current=receivingAddress(wallet, s, snap?.state, await readActivity(key), kind,profile);
+    if(index==null)return {...current,current:true};
+    if(profile!=='refresh'||!Number.isInteger(index)||index<0||index>current.index)throw new Error('Unknown previous address.');
+    return {kind,index,profile,current:index===current.index,address:wallet.profileAddressAt(profile,addressKind(kind),index)};
+  },
+
+  async addressHistory({kind='generation',offset=0}={}) {
+    const {wallet,s,key}=await requireWallet();const snap=await latestSnapshot(key);
+    if(!snap)throw new Error('NO_STATE');
+    if(!Number.isInteger(offset)||offset<0||offset>0xffffffff)throw new Error('Invalid address-history page.');
+    return wallet.profileAddressHistory(snap.state,activeMode(s),addressKind(kind),offset);
   },
 
   async qr({ text, dark = '#0b1220', bg = '#ffffff' }) {
@@ -2102,7 +2140,7 @@ const commands = {
   async maxSendable({ fee, fromKind = 'any' }) {
     const { key, wallet } = await requireWallet();
     const snap = await latestSnapshot(key);
-    return wallet.maxSendable(snap.state, fee, Date.now(), fromKind);
+    return wallet.maxSendable(profileState(wallet,snap.state,activeMode((await settingsStore.load()))), fee, Date.now(), fromKind);
   },
 
   async send(req) {
@@ -2111,13 +2149,16 @@ const commands = {
     const info = light.addressInfo(String(req.to || ''), await currentNetwork());
     if (!info.valid) throw new Error(info.error || 'Not a valid address');
     validatePrivateSend(s, info, req.notificationMode || 'auto', String(req.privateMessage || ''));
-    return startSend({ ...req, toKind: info.kind });
+    const profile=activeMode(s);
+    if(req.walletMode && req.walletMode!==profile) throw new Error('Sub-wallet changed. Review this payment again.');
+    if(profile==='encrypted' && info.kind!=='private-app') throw new Error('The Encrypted sub-wallet requires an encrypted receiving address.');
+    return startSend({ ...req, walletMode:profile, toKind: info.kind });
   },
 
   async retrySend({ id }) {
     const rec = await getSend(id);
     if (!rec) throw new Error('Payment not found');
-    return commands.send({ to: rec.to, amount: rec.amount, fee: rec.fee, fromKind: rec.fromKind, privateMessage: rec.privateMessage || '', notificationMode: rec.notificationMode || 'auto', waitForFreshBlock: false });
+    return commands.send({ to: rec.to, amount: rec.amount, fee: rec.fee, fromKind: rec.fromKind, privateMessage: rec.privateMessage || '', notificationMode: rec.notificationMode || 'auto', walletMode:rec.walletMode || 'standard', waitForFreshBlock: false });
   },
 
   async cancelSend({ id }) {
@@ -2213,7 +2254,7 @@ const commands = {
 
   async activity() {
     const { key } = await requireWallet();
-    return readActivity(key);
+    return activityForMode(await readActivity(key),activeMode((await settingsStore.load())));
   },
 
   async saveSettings(patch) {
@@ -2233,7 +2274,11 @@ const commands = {
       clean.servers = servers;
     }
     delete clean.network; // use switchNetwork
+    delete clean.activeMode; // use selectMode
+    delete clean.createdWallets; // use createSubwallet
+    if (clean.privateNotifications === false && (await settingsStore.load()).activeMode === 'encrypted') clean.activeMode = 'standard';
     if (clean.tor === true) { rpc.interrupt(); await setTorState({ state: 'connecting', port: Number(clean.torPort) || 9150 }); }
+    if (clean.autoRefresh === false && (await settingsStore.load()).activeMode === 'refresh') clean.activeMode = 'standard';
     const saved = await settingsStore.save(clean);
     // Servers or Tor changed: the proxy script must name the right hosts.
     if ('tor' in clean || 'torPort' in clean || clean.servers) await applyTor({ check: 'tor' in clean || 'torPort' in clean }).catch(() => {});

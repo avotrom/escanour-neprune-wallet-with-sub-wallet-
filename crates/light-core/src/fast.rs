@@ -128,12 +128,19 @@ pub struct FastRestore {
 
 fn bump(counts: &mut (u64, u64, u64), key: KeyRef) {
     match key {
-        KeyRef::Generation(i) => counts.0 = counts.0.max(i + 1),
-        KeyRef::Symmetric(i) => counts.1 = counts.1.max(i + 1),
-        KeyRef::EcHybrid(i) if crate::keys::private_index(key).is_none() => {
+        KeyRef::Generation(i)
+            if crate::profiles::profile_of(key) == crate::profiles::Profile::Standard =>
+        {
+            counts.0 = counts.0.max(i + 1)
+        }
+        KeyRef::Symmetric(_) => counts.1 = counts.1.max(crate::profiles::local_index(key) + 1),
+        KeyRef::EcHybrid(i)
+            if crate::keys::private_index(key).is_none()
+                && crate::profiles::profile_of(key) == crate::profiles::Profile::Standard =>
+        {
             counts.2 = counts.2.max(i + 1)
         }
-        KeyRef::EcHybrid(_) => {}
+        _ => {}
     }
 }
 
@@ -469,6 +476,7 @@ impl FastRestore {
             event_at(&mut events, f.height, &f.hash, f.timestamp_ms)
                 .received
                 .push(UtxoEvent {
+                    wallet_mode: crate::profiles::profile_of(f.key).name().into(),
                     aocl_index: f.aocl_index,
                     amount: f.utxo.get_native_currency_amount().to_string(),
                     is_change: f.key.is_change(),
@@ -487,6 +495,7 @@ impl FastRestore {
                     .cloned()
                     .unwrap_or_else(|| (String::new(), f.timestamp_ms));
                 event_at(&mut events, *h, &hash, ts).spent.push(UtxoEvent {
+                    wallet_mode: crate::profiles::profile_of(f.key).name().into(),
                     aocl_index: f.aocl_index,
                     amount: f.utxo.get_native_currency_amount().to_string(),
                     is_change: f.key.is_change(),

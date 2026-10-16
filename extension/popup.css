@@ -1166,3 +1166,87 @@ body.in-tab {
 .private-mode-indicator { padding:9px 12px;border-radius:10px;background:#a895ff1a;color:var(--text);font-size:12px; }
 #privateScanBar { height:100%;background:var(--accent);border-radius:inherit;transition:width .2s; }
 #privateEnable { width:100%;margin-top:10px; }
+/* Receiving profiles: the same calm, centered hierarchy as Tor. */
+.wallet-modes-btn{position:relative}
+.wallet-modes-btn::after{content:"";position:absolute;right:4px;bottom:4px;width:5px;height:5px;border-radius:50%;background:var(--ok)}
+.mode-home-card{display:flex;flex-direction:column;gap:12px;text-align:start;width:calc(100% - 32px);margin:16px 16px 0;padding:18px;border:1px solid var(--hair);border-radius:var(--r-m);background:var(--card);color:var(--text);cursor:pointer}
+.mode-home-top{display:flex;gap:10px;align-items:center;width:100%}
+.mode-home-top>svg{width:20px;height:20px;flex-shrink:0;color:var(--accent)}
+.mode-home-top b{flex:1;font-size:15px}
+.mode-home-card small{font-size:12.5px;line-height:1.5;color:var(--sub)}
+.mode-home-card .mono{font:12px ui-monospace,monospace;color:var(--sub);overflow-wrap:anywhere}
+.mode-home-card .chev{width:14px;height:14px}
+.mode-balance-hint{margin:8px 26px 18px;font-size:11.5px;line-height:1.5}
+#v-modes .row{min-height:82px;gap:10px}
+#v-modes .row-text small{line-height:1.5;max-width:24ch}
+#v-modes .private-nav-status{font-size:10.5px;max-width:10ch;text-align:end}
+#v-modes .pad>.hint{margin:4px 10px 8px}
+#s-receive .payment-indicators{justify-content:center}
+#s-receive .payment-indicators .private-nav-status{font-size:11px}
+#s-receive h3{margin:0 0 12px;font-size:16px}
+#linkSetupForm{margin-top:16px}
+#linkPoolStatus{margin:0}
+/* The selected sub-wallet owns the home screen; controls stay contextual. */
+#v-home .tiles{grid-template-columns:repeat(3,minmax(0,1fr))}
+.mode-home-card{padding:12px 16px;gap:3px;border:0;background:transparent;border-radius:0;margin:8px 0 0;width:100%}
+.mode-home-top b{font-size:15px;font-weight:600}
+.mode-home-card small{padding-inline-start:30px;font-size:11px}
+.mode-home-card .private-nav-status{font-size:10px}
+#modeHomeManage{display:none}
+.mode-home-card .mode-home-top>svg{width:18px;height:18px}
+#v-modes .row{min-height:72px}
+#v-modes .row-text small{font-size:11px}
+.address-epoch{font-size:9.5px;color:var(--sub);min-height:12px;line-height:1.4}
+.address-epoch:empty{display:none}
+body[data-wallet="refresh"] .address-epoch{color:var(--ok)}
+body[data-wallet="encrypted"] .address-epoch{color:var(--accent)}
+#s-receive .seg{grid-template-columns:repeat(2,minmax(0,1fr))}
+#sendProfileHint{font-size:11px;margin:0 0 12px}
+#sendMode[hidden]+#sendModeStatus{font-size:11px}
+#v-private-payments .feature-hero{padding-bottom:20px}
+/* Reference direction: charcoal surfaces and a quiet violet balance card. */
+:root[data-theme="dark"]{--bg:#17181c;--card:#252334;--card-2:#2c293e;--accent:#8b7cf4;--sub:#aaa7be;--hair:rgb(202 193 255 / .07)}
+.wallet-overview{margin:12px 16px 4px;padding:0 0 14px;border-radius:24px;background:linear-gradient(132deg,#6d62d9 0%,#855fd3 58%,#a567d4 100%);color:#fff;overflow:hidden}
+.wallet-overview .hero{padding:20px 20px 14px;margin:0;background:none;border:0;border-radius:0}
+.wallet-overview .balance-label{color:rgb(255 255 255 / .78);font-size:12px}
+.wallet-overview .balance-label .chip{background:rgb(255 255 255 / .13);color:#fff;border:0;font-size:10px}
+.wallet-overview .b-amount{font-size:42px;line-height:1.25;letter-spacing:-1.2px;color:#fff;margin-top:10px}
+.wallet-overview .b-amount small{font-size:17px;color:rgb(255 255 255 / .74);font-weight:500;letter-spacing:0}
+.wallet-overview .fiat,.wallet-overview .b-extra{color:rgb(255 255 255 / .8)}
+.wallet-overview .sync-line{color:#f3efff;background:rgb(30 20 70 / .16);border-color:transparent;font-size:10px;padding:3px 8px;min-height:24px;margin-top:12px}
+.wallet-overview .tiles{padding:0 14px;margin:0;gap:10px}
+.wallet-overview .tile{min-height:66px;height:66px;border:0;border-radius:14px;background:rgb(255 255 255 / .18);color:#fff;font-size:11px;font-weight:500;box-shadow:none}
+.wallet-overview .tile svg{width:20px;height:20px;color:#fff;margin-bottom:5px}
+.wallet-overview .tile:hover{background:rgb(255 255 255 / .25)}
+#v-home .tabs{margin-top:18px}
+#v-home .acard{background:var(--card);border:1px solid var(--hair);border-radius:16px;padding:14px 12px;gap:8px;min-height:132px}
+#v-home .acard header{font-size:12px;gap:6px}
+#v-home .k-bal{font-size:23px;letter-spacing:-.4px}
+#v-home .k-bal small{font-size:10px}
+#v-home .k-icon{background:color-mix(in srgb,var(--accent) 15%,transparent);color:var(--accent);width:26px;height:26px}
+.mode-home-card{margin:0;padding:8px 20px 4px}
+#v-home .market{margin-top:14px}
+body[data-wallet="refresh"] .mode-home-top>svg{color:var(--ok)}
+body[data-wallet="encrypted"] .mode-home-top>svg{color:#b094f4}
+#privacyChip,#goPrivacy{display:none!important}
+#privateState,#torNavRow{display:none!important}
+body[data-wallet="standard"] .wallet-overview{background:linear-gradient(130deg,#5f51bc,#8250a2)}
+body[data-wallet="refresh"] .wallet-overview{background:linear-gradient(130deg,#115f6c,#25788b)}
+body[data-wallet="encrypted"] .wallet-overview{background:linear-gradient(130deg,#55419e,#86456f)}
+.wallet-overview .balance-label{color:rgb(255 255 255 / .92)}
+.wallet-overview .tile{background:rgb(255 255 255 / .12);font-weight:600}
+body[data-wallet="refresh"] #v-home .acard{background:color-mix(in srgb,var(--card) 84%,#208c9a)}
+body[data-wallet="encrypted"] #v-home .acard{background:color-mix(in srgb,var(--card) 84%,#a55291)}
+body[data-wallet="refresh"] #v-home .k-icon{color:#6ac8cf;background:#26777b33}
+body[data-wallet="encrypted"] #v-home .k-icon{color:#d899cc;background:#a4509133}
+.inline-icon{width:14px;height:14px;margin-inline-end:6px;vertical-align:middle}
+.address-history-list{display:flex;flex-direction:column;gap:10px}
+.address-history-row{display:flex;align-items:center;gap:12px;padding:14px;background:var(--card);border:1px solid var(--hair);border-radius:16px}
+.address-history-view{flex:1;min-width:0;background:none;color:var(--text);border:0;padding:0;text-align:start;cursor:pointer;display:flex;flex-direction:column;gap:6px}
+.address-history-heading{display:flex;width:100%;align-items:center;justify-content:space-between;gap:8px}
+.address-history-heading b{font-size:13px}
+.address-history-status{font-size:10px;color:var(--sub)}
+.address-history-status[data-current="true"]{color:var(--ok)}
+.address-history-view small{font-size:11px;color:var(--sub)}
+.address-history-view .mono{font-family:ui-monospace,monospace;font-size:10px;overflow-wrap:anywhere}
+#addressHistoryOpen,#encryptedRecoveryOpen{font-size:12px;padding:12px 16px}

@@ -12,13 +12,13 @@ export function rotateReceivingAddress(settings, kind, activity = []) {
 
 export function requirePrivateNotifications(settings) {
   if (settings.network === 'main') throw new Error('Private app notifications are experimental and disabled on mainnet.');
-  if (settings.privateNotifications !== true) throw new Error('Enable Private payments using the private controls icon first.');
+  if (settings.privateNotifications !== true) throw new Error('Enable Encrypted receipt in Wallet modes first.');
 }
 
 /** The ordinary receiver-ID index cannot find custom envelopes. This build
  * always scans test-network restores in full, including on a fresh install. */
 export function notificationRestoreMode(network, requested) {
-  return network === 'main' ? requested : 'private';
+  return 'private';
 }
 
 export function validatePrivateSend(settings, info, mode = 'auto', message = '') {

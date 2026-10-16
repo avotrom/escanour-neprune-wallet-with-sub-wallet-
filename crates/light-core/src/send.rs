@@ -5,7 +5,7 @@
 //! device: neptune-rpc-api refuses to serialize a witness-backed transaction
 //! (`RpcTransactionProof::try_from` errors on `TransactionProof::Witness`).
 
-use anyhow::{anyhow, ensure, Result};
+use anyhow::{Result, anyhow, ensure};
 use neptune_consensus::consensus_rule_set::ConsensusRuleSet;
 use neptune_consensus::transaction::announcement::Announcement;
 use neptune_consensus::transaction::primitive_witness::PrimitiveWitness;
@@ -74,6 +74,7 @@ impl PreparedSend {
 }
 
 pub struct SendRequest<'a> {
+    pub profile: crate::profiles::Profile,
     pub to: &'a str,
     pub amount: NativeCurrencyAmount,
     pub fee: NativeCurrencyAmount,
@@ -141,10 +142,16 @@ impl Destination {
     }
 }
 
-pub fn parse_destination(to: &str, network: neptune_primitives::network::Network) -> Result<Destination> {
+pub fn parse_destination(
+    to: &str,
+    network: neptune_primitives::network::Network,
+) -> Result<Destination> {
     // Preserve case so the bech32 decoder rejects mixed-case app addresses.
     let to = to.trim();
-    if to.to_ascii_lowercase().starts_with(private_notification::ADDRESS_HRP) {
+    if to
+        .to_ascii_lowercase()
+        .starts_with(private_notification::ADDRESS_HRP)
+    {
         Ok(Destination::Private(AppAddress::parse(to, network)?))
     } else {
         Ok(Destination::Standard(parse_recipient(to, network)?))
@@ -212,14 +219,24 @@ pub fn prepare_send(
     keys: &Keys,
     req: SendRequest<'_>,
 ) -> Result<PreparedSend> {
+    let selected_state = crate::profiles::filtered(state, req.profile);
+    let state = &selected_state;
     let network = state.network;
     ensure!(req.amount.is_positive(), "amount must be positive");
     ensure!(!req.fee.is_negative(), "fee cannot be negative");
 
     // bech32m is case-insensitive; QR codes carry it in capitals.
     let destination = parse_destination(req.to, network)?;
-    ensure!(req.private_message.unwrap_or("").is_empty() || matches!(destination, Destination::Private(_)),
-        "encrypted messages require a private app address");
+    ensure!(
+        req.private_message.unwrap_or("").is_empty()
+            || matches!(destination, Destination::Private(_)),
+        "encrypted messages require a private app address"
+    );
+    ensure!(
+        req.profile != crate::profiles::Profile::Encrypted
+            || matches!(destination, Destination::Private(_)),
+        "the Encrypted sub-wallet requires an encrypted receiving address"
+    );
     let to_normalized = req.to.trim().to_lowercase();
     let recipient = destination.receiving();
 
@@ -245,7 +262,11 @@ pub fn prepare_send(
         .utxos
         .iter()
         .zip(state.origins())
-        .filter(|(u, o)| u.is_spendable(now) && from_matches(*o, req.from_kind))
+        .filter(|(u, o)| {
+            u.is_spendable(now)
+                && crate::profiles::profile_of(u.key) == req.profile
+                && from_matches(*o, req.from_kind)
+        })
         .map(|(u, _)| u)
         .collect();
     let selected: Vec<_> = if let Some(pins) = &req.pinned_inputs {
@@ -297,21 +318,30 @@ pub fn prepare_send(
 
     let height = BlockHeight::from(state.height);
     let sender_randomness = match &destination {
-        Destination::Standard(_) => keys.entropy()
+        Destination::Standard(_) => keys
+            .entropy()
             .generate_sender_randomness(height, recipient.privacy_digest()),
         Destination::Private(_) => private_notification::fresh_sender_randomness()?,
     };
     let payment = match &destination {
-        Destination::Standard(_) => TxOutput::onchain_native_currency(req.amount, sender_randomness, recipient, false),
-        Destination::Private(_) => TxOutput::offchain_native_currency(req.amount, sender_randomness, recipient, false),
+        Destination::Standard(_) => {
+            TxOutput::onchain_native_currency(req.amount, sender_randomness, recipient, false)
+        }
+        Destination::Private(_) => {
+            TxOutput::offchain_native_currency(req.amount, sender_randomness, recipient, false)
+        }
     };
     let private_announcement = match &destination {
         Destination::Standard(_) => None,
         Destination::Private(address) => {
-            let (notification, _) = payment.offchain_notification(network)
+            let (notification, _) = payment
+                .offchain_notification(network)
                 .ok_or_else(|| anyhow!("off-chain notification was not created"))?;
             Some(private_notification::seal_notification_with_message(
-                address, &notification, req.private_message.unwrap_or(""), network,
+                address,
+                &notification,
+                req.private_message.unwrap_or(""),
+                network,
             )?)
         }
     };
@@ -322,14 +352,18 @@ pub fn prepare_send(
         .ok_or_else(|| anyhow!("change underflow"))?;
     let change_key_index = if change.is_positive() {
         let index = state.next_symmetric_index;
-        let change_address = keys.address(KeyRef::Symmetric(index));
+        let change_ref = crate::profiles::change_key(req.profile, index)?;
+        let change_address = keys.address(change_ref);
         outputs.push(TxOutput::onchain_native_currency_as_change(
             change,
             keys.entropy()
                 .generate_sender_randomness(height, change_address.privacy_digest()),
             change_address,
         ));
-        Some(index)
+        Some(match change_ref {
+            KeyRef::Symmetric(i) => i,
+            _ => unreachable!(),
+        })
     } else {
         None
     };
@@ -476,8 +510,9 @@ pub fn self_check(prepared: &PreparedSend, c: &ProofCollection) -> Result<()> {
 pub fn record_broadcast(state: &mut WalletState, prepared: &PreparedSend) {
     state.reserve(&prepared.input_aocl_indices, &prepared.tx_id());
     if let Some(i) = prepared.change_key_index {
-        if i >= state.next_symmetric_index {
-            state.next_symmetric_index = i + 1;
+        let local = crate::profiles::local_index(KeyRef::Symmetric(i));
+        if local >= state.next_symmetric_index {
+            state.next_symmetric_index = local + 1;
         }
     }
 }

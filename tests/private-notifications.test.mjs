@@ -21,7 +21,7 @@ test('fresh test-network restores cannot skip anonymous envelopes via the addres
   for (const network of ['testnet', 'testnet-mock']) {
     for (const mode of ['fast', 'node', 'private']) assert.equal(notificationRestoreMode(network, mode), 'private');
   }
-  for (const mode of ['fast', 'node', 'private']) assert.equal(notificationRestoreMode('main', mode), mode);
+  for (const mode of ['fast', 'node', 'private']) assert.equal(notificationRestoreMode('main', mode), 'private');
 });
 
 test('experimental mode and recovery limitations are translated in all UI languages', () => {

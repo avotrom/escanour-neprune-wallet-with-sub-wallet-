@@ -41,7 +41,7 @@ pub fn private_key(index: u64) -> Result<KeyRef> {
 
 pub fn private_index(key: KeyRef) -> Option<u64> {
     match key {
-        KeyRef::EcHybrid(i)
+        KeyRef::EcHybrid(i) | KeyRef::Generation(i)
             if (PRIVATE_KEY_INDEX..=PRIVATE_KEY_INDEX + MAX_PRIVATE_INDEX).contains(&i) =>
         {
             Some(i - PRIVATE_KEY_INDEX)
@@ -106,6 +106,7 @@ pub struct Keys {
     /// the scan set is derived once per change in key counts, not per block.
     scan_cache: RefCell<Option<ScanCache>>,
     private_cache: RefCell<Option<(Vec<u64>, Vec<(KeyRef, SpendingKey)>)>>,
+    profile_cache: RefCell<Option<(Vec<KeyRef>, Vec<(KeyRef, SpendingKey)>)>>,
 }
 
 impl Keys {
@@ -127,6 +128,7 @@ impl Keys {
             notification_secret,
             scan_cache: RefCell::new(None),
             private_cache: RefCell::new(None),
+            profile_cache: RefCell::new(None),
         })
     }
 
@@ -190,6 +192,56 @@ impl Keys {
             })
             .collect::<Vec<_>>();
         *self.private_cache.borrow_mut() = Some((indices, keys.clone()));
+        keys
+    }
+
+    /// Additional sub-wallet keys. Cached across blocks and rebuilt only when
+    /// a confirmed receipt advances the Auto-refresh range or change counter.
+    pub fn profile_scan_keys(
+        &self,
+        state: &crate::state::WalletState,
+    ) -> Vec<(KeyRef, SpendingKey)> {
+        use crate::profiles::{Profile, change_key, key_for, profile_of};
+        let mut refs = state
+            .utxos
+            .iter()
+            .filter(|u| profile_of(u.key) != Profile::Standard)
+            .map(|u| u.key)
+            .collect::<Vec<_>>();
+        for kind in [AddressKind::Generation, AddressKind::EcHybrid] {
+            let next = crate::profiles::receive_index(state, Profile::Refresh, kind);
+            for i in 0..=next.saturating_add(KEY_LOOKAHEAD).min(MAX_PRIVATE_INDEX) {
+                refs.push(key_for(Profile::Refresh, kind, i).unwrap());
+            }
+        }
+        for profile in [Profile::Refresh, Profile::Encrypted] {
+            if profile == Profile::Encrypted && self.network == Network::Main {
+                continue;
+            }
+            for i in 0..state.next_symmetric_index + KEY_LOOKAHEAD {
+                refs.push(change_key(profile, i).unwrap());
+            }
+        }
+        if self.network != Network::Main {
+            refs.push(key_for(Profile::Encrypted, AddressKind::Generation, 0).unwrap());
+        }
+        refs.sort_by_key(|k| match *k {
+            KeyRef::Generation(i) => (0, i),
+            KeyRef::EcHybrid(i) => (1, i),
+            KeyRef::Symmetric(i) => (2, i),
+        });
+        refs.dedup();
+        if let Some((cached, keys)) = self.profile_cache.borrow().as_ref() {
+            if *cached == refs {
+                return keys.clone();
+            }
+        }
+        let keys = refs
+            .iter()
+            .copied()
+            .map(|r| (r, self.key(r)))
+            .collect::<Vec<_>>();
+        *self.profile_cache.borrow_mut() = Some((refs, keys.clone()));
         keys
     }
 

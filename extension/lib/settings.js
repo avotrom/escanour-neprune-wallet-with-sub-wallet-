@@ -35,6 +35,9 @@ export const DEFAULTS = {
   // Receiving address kind shown first: 'generation' (post-quantum, long) or
   // 'ec-hybrid' (short; notification privacy relies on elliptic curves).
   addressKind: 'generation',
+  activeMode: 'standard',
+  autoRefresh: false,
+  createdWallets: { standard:true, refresh:false, encrypted:false },
   // Experimental app-address sending/publishing; mainnet is disabled in Rust too.
   privateNotifications: false,
   freshAddresses: false,
@@ -54,11 +57,14 @@ export const DEFAULTS = {
 /** Settings written by versions before 0.3 kept one server pair for the wallet's network. */
 function migrate(s) {
   const out = { ...DEFAULTS, ...s };
+  out.createdWallets={standard:true,refresh:s.createdWallets?.refresh===true || s.autoRefresh===true,encrypted:s.createdWallets?.encrypted===true || s.privateNotifications===true};
   out.servers = {};
   for (const n of NETWORKS) out.servers[n] = { ...DEFAULT_SERVERS[n], ...(s.servers?.[n] || {}) };
   if (s.syncServer && !s.servers) {
     out.servers[out.network] = { sync: s.syncServer, broadcast: s.broadcastServer || s.syncServer };
   }
+  delete out.paymentLinks;
+  delete out.linkHosts;
   delete out.syncServer;
   delete out.broadcastServer;
   return out;

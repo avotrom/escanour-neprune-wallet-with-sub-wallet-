@@ -1,16 +1,16 @@
-> **0.22 prototype:** The status below describes the earlier wallet source. See [../RELEASE-0.22.md](../RELEASE-0.22.md) for current validation and [PRIVATE-NOTIFICATIONS.md](PRIVATE-NOTIFICATIONS.md) for the new experimental feature.
+> **0.23 prototype:** See [../RELEASE-0.23.md](../RELEASE-0.23.md) for current validation and [SUB-WALLETS.md](SUB-WALLETS.md) for the three sub-wallets, address history and encrypted receipt recovery. The remaining table also describes features inherited from the earlier wallet source.
 
 # Status
 
-**Experimental source prototype.** Native core tests, JavaScript checks and native/WASM compilation have passed locally. Fresh release WASM binaries and live-node acceptance have not been established. See [../RELEASE-0.22.md](../RELEASE-0.22.md) for exact validation results and limitations.
+**Experimental source prototype.** Native core tests, JavaScript checks and native/WASM compilation have passed locally. Fresh release WASM binaries and live-node acceptance have not been established. See [../RELEASE-0.23.md](../RELEASE-0.23.md) for exact validation results and limitations.
 
 ## Deployment validation checklist
 
 1. [x] Pinned Neptune source and the existing WASM compatibility patch prepared.
 2. [x] Native compilation: light-core and CLI.
 3. [x] WASM compilation: light-wasm and prover-wasm.
-4. [x] Local native tests: 19 passed, one optional scanning benchmark run separately.
-5. [x] JavaScript checks: 26 tests passed; syntax and popup DOM bindings checked.
+4. [x] Local native tests: 21 passed, one optional scanning benchmark run separately.
+5. [x] JavaScript checks: 29 tests passed; syntax and popup DOM bindings checked.
 6. [ ] Fresh release WASM build and installed-extension validation.
 7. [ ] Unchanged-node admission, relay, mining, offline receive, spend and clean restore.
 8. [ ] Real proof generation/acceptance and browser performance measurements.
@@ -26,11 +26,11 @@
 | Local sync: hash chain, receiver-id scan, membership proofs, spend detection, accumulator check | written |
 | Reorg rollback via snapshots | written |
 | Connect through Tor (proxy script, fail-closed, Tor check) and Privacy check screen | written; proxy logic tested with a simulated Chrome; not yet tried with a real Tor |
-| Exact anonymity count (Hall's theorem on spend intervals, lustration-aware) with background spend index | written; algorithm checked against brute force; Rust built only in CI |
+| Exact anonymity count (Hall's theorem on spend intervals, lustration-aware) with background spend index | written; algorithm checked against brute force locally |
 | Low-memory proving (Automatic / On / Off) and per-proof report | written; not yet measured on real proofs |
 | Node mode (own node for sync, broadcast, fast restore, fast rescan) with capability check | written; tested against a simulated server |
 | Proving help from the server (proof collection without chunk data; lock-script-only on own node) | waiting for neptune-core endpoints |
-| Restore choice: fast (UTXO index), fast with own node, private full scan; falls back to the full scan | written; JS flow tested in the harness, Rust built only in CI; not yet tried against a real node with `--utxo-index` |
+| Restore source: public or own node; full local block scan | full scanning is forced for seed restoration on every network to discover all sub-wallet branches; index code remains available internally |
 | Address balances add up to Available (change counted for the paying address) | written |
 | Address names follow neptune-core: Generation, EC Hybrid | written |
 | Light idle mode: tip check without wasm or decryption, one home request, simple home screen without continuous animations | written, tested in the harness |
@@ -50,7 +50,7 @@
 | Encrypted vault, state, jobs; auto-lock | written |
 | Native CLI with per-proof benchmark | written |
 | Two receiving address types: Post-quantum (generation) and Short (EC Hybrid) | written |
-| One address per kind (index 0, same as neptune-core); older indices still scanned | written |
+| Standard fixed addresses; Auto-refresh after confirmation with previous-address history; Encrypted app addresses for both kinds | written; six branches and seed replay checked locally |
 | QR codes (upper-cased bech32m, alphanumeric mode); message when an address is too long | written |
 | History with fees, pending/confirmed status, change hidden | written |
 | Server status light, sync ring, "Up to date" at the latest block | written |
@@ -74,7 +74,7 @@
 | Activity shows which address kind received each payment; amounts shown without trailing zeros | written |
 | Privacy indicator: per-coin anonymity set from `AbsoluteIndexSet::aocl_range`, maturing coins, lustration, server separation | written |
 | Self-check before broadcast: every proof verified against the claims neptune-consensus builds (`ProofCollection::*_claim`) | written |
-| Restore scans the whole chain from block 1 (no date to choose); continuous chunked scan with progress | written, tested with a simulated chain |
+| Restore scans from genesis by default; optional known block before the first payment; continuous chunked scan with progress | written, tested with a simulated chain; dedicated Encrypted address recovery page |
 | Minimum fee raised to 0.02 NPT so proof upgraders (min 0.01 after their 60 % share) take the transaction | written |
 
 ## Known gaps

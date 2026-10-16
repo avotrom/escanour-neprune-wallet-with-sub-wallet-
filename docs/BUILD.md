@@ -78,7 +78,7 @@ Output goes to `extension/pkg/light/` and `extension/pkg/prover/`.
 1. Open `chrome://extensions` and enable **Developer mode**.
 2. Click **Load unpacked** and select `extension/`.
 3. Open the extension, create a wallet on **Testnet (mock proofs)** first. Mock-proof networks skip proving, so you can test sync and sending end to end in seconds.
-4. Then try **Testnet** with real proofs, and only then mainnet with small amounts.
+4. Then validate **Testnet** with real proofs and an unchanged node. Encrypted remains disabled on mainnet. This source prototype has not completed live-node acceptance or a security review.
 
 Debugging:
 
@@ -102,6 +102,6 @@ $B --network testnet address
 $B --network testnet --server https://YOUR-TESTNET-NODE send <address> 1.5 0.05 --workers 4
 ```
 
-`send` prints one timing line per proof and the total for the chosen worker count. Run it with `--workers 1`, `2` and `4` to see how proving time scales on your machine. The browser will be roughly 1.5 to 3 times slower than native.
+`send` prints one timing line per proof and the total for the chosen worker count. Run it with `--workers 1`, `2` and `4` to see how proving time scales on your machine. Measure browser performance separately; the recorded native scan sample does not establish browser or proving times.
 
 The CLI state file is not encrypted. Use it for testing only.

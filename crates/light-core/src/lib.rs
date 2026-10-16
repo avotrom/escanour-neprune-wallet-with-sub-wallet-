@@ -52,3 +52,5 @@ use neptune_primitives::network::Network;
 pub fn parse_network(name: &str) -> Result<Network> {
     name.parse::<Network>().map_err(|e| anyhow::anyhow!(e))
 }
+
+pub mod profiles;

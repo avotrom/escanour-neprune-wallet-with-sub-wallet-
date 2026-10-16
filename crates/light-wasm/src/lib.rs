@@ -241,6 +241,102 @@ impl LightWallet {
         Ok(out.into())
     }
 
+    #[wasm_bindgen(js_name = profileState)]
+    pub fn profile_state(&self, state: &[u8], profile: &str) -> Result<Vec<u8>, JsError> {
+        let st = WalletState::from_bytes(state).map_err(js_err)?;
+        let profile = light_core::profiles::Profile::parse(profile).map_err(js_err)?;
+        light_core::profiles::filtered(&st, profile)
+            .to_bytes()
+            .map_err(js_err)
+    }
+    #[wasm_bindgen(js_name = profileReceiveAddress)]
+    pub fn profile_receive_address(
+        &self,
+        state: &[u8],
+        profile: &str,
+        kind: &str,
+    ) -> Result<JsValue, JsError> {
+        let st = WalletState::from_bytes(state).map_err(js_err)?;
+        let profile = light_core::profiles::Profile::parse(profile).map_err(js_err)?;
+        let kind = AddressKind::parse(kind).map_err(js_err)?;
+        let index = light_core::profiles::receive_index(&st, profile, kind);
+        let address = if profile == light_core::profiles::Profile::Encrypted {
+            light_core::private_notification::AppAddress::for_kind_index(&self.keys, kind, index)
+                .map_err(js_err)?
+        } else {
+            self.keys
+                .address(light_core::profiles::key_for(profile, kind, index).map_err(js_err)?)
+                .to_bech32m(self.keys.network())
+                .map_err(js_err)?
+        };
+        to_js(
+            &serde_json::json!({"index":index,"address":address,"kind":kind.name(),"profile":profile.name()}),
+        )
+    }
+
+    #[wasm_bindgen(js_name = profileAddressHistory)]
+    pub fn profile_address_history(
+        &self,
+        state: &[u8],
+        profile: &str,
+        kind: &str,
+        offset: u32,
+    ) -> Result<JsValue, JsError> {
+        let st = WalletState::from_bytes(state).map_err(js_err)?;
+        let profile = light_core::profiles::Profile::parse(profile).map_err(js_err)?;
+        let kind = AddressKind::parse(kind).map_err(js_err)?;
+        let current = light_core::profiles::receive_index(&st, profile, kind);
+        let mut history = light_core::profiles::address_history(&st, profile, kind);
+        if !history.iter().any(|r| r.index == current) {
+            history.insert(
+                0,
+                light_core::profiles::AddressHistoryEntry {
+                    index: current,
+                    receipts: 0,
+                    first_height: 0,
+                    last_height: 0,
+                },
+            );
+        }
+        let total = history.len();
+        let mut rows = vec![];
+        for row in history.into_iter().skip(offset as usize).take(20) {
+            let address = self.profile_address_at(profile.name(), kind.name(), row.index as f64)?;
+            rows.push(serde_json::json!({"index":row.index,"address":address,"current":row.index==current,"receipts":row.receipts,"firstHeight":row.first_height,"lastHeight":row.last_height}));
+        }
+        to_js(
+            &serde_json::json!({"profile":profile.name(),"kind":kind.name(),"rows":rows,"total":total,"next":(offset as usize+20).min(total)}),
+        )
+    }
+    #[wasm_bindgen(js_name = profileAddressAt)]
+    pub fn profile_address_at(
+        &self,
+        profile: &str,
+        kind: &str,
+        index: f64,
+    ) -> Result<String, JsError> {
+        if !index.is_finite() || index < 0. || index.fract() != 0. || index > u32::MAX as f64 {
+            return Err(JsError::new("invalid receiving index"));
+        }
+        let profile = light_core::profiles::Profile::parse(profile).map_err(js_err)?;
+        let kind = AddressKind::parse(kind).map_err(js_err)?;
+        if profile == light_core::profiles::Profile::Encrypted {
+            light_core::private_notification::AppAddress::for_kind_index(
+                &self.keys,
+                kind,
+                index as u64,
+            )
+            .map_err(js_err)
+        } else {
+            self.keys
+                .address(
+                    light_core::profiles::key_for(profile, kind, index as u64).map_err(js_err)?,
+                )
+                .to_bech32m(self.keys.network())
+                .map_err(js_err)
+        }
+    }
+
     pub fn summary(&self, state: &[u8], now_ms: f64) -> Result<JsValue, JsError> {
         let st = WalletState::from_bytes(state).map_err(js_err)?;
         let now = light_core::neptune_primitives::timestamp::Timestamp::millis(now_ms as u64);
@@ -356,10 +452,13 @@ impl LightWallet {
         accept_lustration: bool,
         from_kind: Option<String>,
         private_message: Option<String>,
+        profile: Option<String>,
     ) -> Result<JsValue, JsError> {
         let st = WalletState::from_bytes(state).map_err(js_err)?;
         let from_kind = parse_from(from_kind)?;
         let req = SendRequest {
+            profile: light_core::profiles::Profile::parse(profile.as_deref().unwrap_or("standard"))
+                .map_err(js_err)?,
             to,
             amount: send::parse_amount(amount).map_err(js_err)?,
             fee: send::parse_amount(fee).map_err(js_err)?,
