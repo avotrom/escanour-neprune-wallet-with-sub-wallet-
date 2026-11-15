@@ -241,6 +241,43 @@ impl LightWallet {
         Ok(out.into())
     }
 
+    // ---- succinct node: public chain data only, never keys or coins ----
+
+    /// Where this state stands on the chain: `{ height, tipHash,
+    /// mutatorSetHash }`.
+    #[wasm_bindgen(js_name = chainPosition)]
+    pub fn chain_position(&self, state: &[u8]) -> Result<JsValue, JsError> {
+        let st = WalletState::from_bytes(state).map_err(js_err)?;
+        to_js(&serde_json::json!({
+            "height": st.height,
+            "tipHash": st.tip_hash.to_hex(),
+            "mutatorSetHash": st.msa.hash().to_hex(),
+        }))
+    }
+
+    /// The mutator set accumulator after the wallet's tip (bincode). Public
+    /// chain data: lets the node module validate the next block in full.
+    #[wasm_bindgen(js_name = mutatorSet)]
+    pub fn mutator_set(&self, state: &[u8]) -> Result<Vec<u8>, JsError> {
+        let st = WalletState::from_bytes(state).map_err(js_err)?;
+        bincode::serialize(&st.msa).map_err(|e| JsError::new(&e.to_string()))
+    }
+
+    /// Compare this state with a proven tip (JSON of a `TipReport`):
+    /// "on-proven-chain", "diverged" or "not-comparable".
+    #[wasm_bindgen(js_name = provenMatch)]
+    pub fn proven_match(&self, state: &[u8], report_json: &str) -> Result<String, JsError> {
+        let st = WalletState::from_bytes(state).map_err(js_err)?;
+        let report: light_core::succinct::TipReport =
+            serde_json::from_str(report_json).map_err(|e| JsError::new(&e.to_string()))?;
+        Ok(match report.matches(&st) {
+            light_core::succinct::Match::OnProvenChain => "on-proven-chain",
+            light_core::succinct::Match::Diverged => "diverged",
+            light_core::succinct::Match::NotComparable => "not-comparable",
+        }
+        .to_string())
+    }
+
     #[wasm_bindgen(js_name = profileState)]
     pub fn profile_state(&self, state: &[u8], profile: &str) -> Result<Vec<u8>, JsError> {
         let st = WalletState::from_bytes(state).map_err(js_err)?;

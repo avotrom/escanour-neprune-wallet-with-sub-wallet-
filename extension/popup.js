@@ -3019,7 +3019,98 @@ function fillServers() {
   $('nodeMode').checked = local;
   if (local) $('nodeUrl').value = srv.sync;
   $('nodeChecks').hidden = true;
+  refreshSuccinct().catch(() => {});
 }
+
+// ---- succinct node (Servers) ----
+let succinctView = null;
+async function refreshSuccinct() {
+  const network = serversNet;
+  const v = await call('succinctStatus', { network });
+  if (serversNet !== network) return;
+  succinctView = v;
+  $('succinctCard').hidden = !v.available;
+  if (!v.available) return;
+  $('succinctOn').checked = v.enabled;
+  $('succinctKeep').checked = v.keepRunning;
+  const builtin = v.anchor.source === 'builtin';
+  if (document.activeElement !== $('succinctAnchor')) $('succinctAnchor').value = v.anchor.hash || '';
+  $('succinctAnchor').readOnly = builtin;
+  $('succinctAnchorSave').hidden = builtin;
+  $('succinctAnchorHint').textContent = t(`suc.anchor.${v.anchor.source}`);
+  const list = $('succinctFacts');
+  list.textContent = '';
+  list.hidden = !v.enabled;
+  if (!v.enabled) return;
+  const add = (state, text) => {
+    const li = document.createElement('li');
+    li.dataset.state = state;
+    li.textContent = text;
+    list.append(li);
+  };
+  const p = network === app.settings.network ? app.status?.proven || v.proven : v.proven;
+  const short = (h) => (h ? `${h.slice(0, 10)}…${h.slice(-6)}` : '');
+  if (!v.targets.length) add('bad', t('suc.needServer'));
+  else if (p.state === 'waiting') add('wait', t('suc.waiting'));
+  else if (p.state === 'inactive') add('info', t('suc.inactive', { h: fmtNum(p.height), a: fmtNum(p.activationHeight) }));
+  else if (p.state === 'error') add('bad', t('suc.error', { e: p.error || '' }));
+  else if (p.state === 'conflict') add('bad', t('suc.conflict'));
+  else if (p.state === 'diverged') add('bad', t('suc.diverged', { h: fmtNum(p.height) }));
+  else if (p.state === 'proven') add('ok', t('suc.proven', { h: fmtNum(p.provenHeight), hash: short(p.hash) }));
+  else if (p.state === 'syncing') add('info', t('suc.syncing', { h: fmtNum(p.provenHeight), w: p.walletHeight == null ? '?' : fmtNum(p.walletHeight) }));
+  for (const r of v.record?.results || []) {
+    const host = new URL(r.url).host;
+    if (!r.ok) add('bad', t('suc.nodeBad', { host, e: r.error }));
+    else if (r.report.proven) add(r.report.hash === v.record.best?.hash ? 'ok' : 'info', t(r.report.hash === v.record.best?.hash ? 'suc.nodeOk' : 'suc.nodeBehind', { host, h: fmtNum(r.report.height), s: (r.seconds || 0).toFixed(1) }));
+  }
+  if (p.work) add('info', t('suc.work', { w: p.work }));
+}
+$('succinctOn').onchange = async () => {
+  const on = $('succinctOn').checked;
+  $('succinctMsg').textContent = '';
+  try {
+    app.settings = await call('saveSettings', { succinct: on });
+    $('succinctMsg').textContent = on ? t('suc.on') : t('suc.off');
+  } catch (e) {
+    $('succinctOn').checked = !on;
+    $('succinctMsg').textContent = String(e.message || e);
+  }
+  refreshSuccinct().catch(() => {});
+};
+$('succinctVerify').onclick = async () => {
+  const b = $('succinctVerify');
+  busy(b, true);
+  $('succinctMsg').textContent = t('suc.verifying');
+  try {
+    await call('succinctVerify');
+    $('succinctMsg').textContent = '';
+  } catch (e) {
+    $('succinctMsg').textContent = String(e.message || e);
+  } finally {
+    busy(b, false);
+    refreshSuccinct().catch(() => {});
+  }
+};
+$('succinctAnchorSave').onclick = async () => {
+  const hash = $('succinctAnchor').value.trim();
+  if (succinctView?.anchor.hash && hash !== succinctView.anchor.hash && !confirm(t('suc.anchorConfirm'))) return;
+  try {
+    await call('succinctAnchor', { network: serversNet, hash });
+    $('succinctMsg').textContent = hash ? t('suc.anchorSaved') : t('suc.anchorCleared');
+  } catch (e) {
+    $('succinctMsg').textContent = String(e.message || e);
+  }
+  refreshSuccinct().catch(() => {});
+};
+$('succinctKeep').onchange = async () => {
+  const on = $('succinctKeep').checked;
+  // Chrome's "background" permission keeps the browser process (and with it
+  // the node's page) alive after the last window closes.
+  const done = on
+    ? await chrome.permissions.request({ permissions: ['background'] }).catch(() => false)
+    : await chrome.permissions.remove({ permissions: ['background'] }).catch(() => false);
+  if (!done) $('succinctKeep').checked = !on;
+};
 $('setNodePool').onchange=()=>{$('nodeBField').hidden=!$('setNodePool').checked;};
 for (const b of document.querySelectorAll('#srvNet .seg-btn')) {
   b.onclick = () => {
@@ -3276,6 +3367,7 @@ chrome.runtime.onMessage.addListener((msg) => {
   if (msg.type === 'status') {
     if (msg.network && app?.settings && msg.network !== app.settings.network) return;
     if (app) {app.status=msg.status;if(msg.recoveries)app.recoveries=msg.recoveries;}
+    if(currentScreen==='servers'&&serversNet===app.settings.network)refreshSuccinct().catch(()=>{});
     if(currentScreen==='servers'&&serversNet===app.settings.network&&msg.status.node?.url)$('nodeSessionStatus').textContent=t('srv.poolUsing',{node:msg.status.node.label,host:new URL(msg.status.node.url).host});
     if (currentScreen==='claim') renderAssetRecovery();
     if (!$('v-home').hidden) renderHomeWatch(homeWatchCache);

@@ -3,9 +3,10 @@
 # Upstream Neptune is not modified; the patch lives only in this repo.
 set -euo pipefail
 
-# neptune-core `release` branch, crates at 0.19.x (October 2026).
+# neptune-core v0.20.1 (November 2026): soft fork epsilon, succinctness.
+# Blocks from height 62,500 (main net) prove their predecessor.
 NEPTUNE_REPO="https://github.com/Neptune-Crypto/neptune-core.git"
-NEPTUNE_COMMIT="cc3fca93fa4410bc6f7ab8db7c2416dde33d7f04"
+NEPTUNE_COMMIT="404f73795b7281c341687727c5c82a9a540b4b28"
 
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 DEST="$ROOT/vendor/neptune-core"

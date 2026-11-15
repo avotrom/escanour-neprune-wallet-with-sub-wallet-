@@ -589,6 +589,24 @@
           <p class="hint small" data-i18n="node.note2">Add --network testnet for Testnet. --utxo-index (and the Utxoindex module) is only needed for fast restore. Keep the RPC port on 127.0.0.1; never expose it to the internet.</p>
           <ul id="nodeChecks" class="node-checks" hidden></ul>
         </div>
+        <div id="succinctCard" class="card stack own-node" hidden>
+          <label class="row node-row">
+            <span class="r-ic c5"><svg><use href="#i-shield"/></svg></span><b data-i18n="suc.title">Succinct node</b>
+            <input id="succinctOn" type="checkbox" class="switch" />
+          </label>
+          <p class="hint" data-i18n="suc.why">Verify the chain yourself. Each new tip's proof is checked in this browser: it proves every block above the activation block, so a server can no longer show you an invented chain. No extra node to run.</p>
+          <ul id="succinctFacts" class="node-checks" hidden></ul>
+          <label class="field"><span data-i18n="suc.anchor">Trust anchor (hash of the last block before activation)</span>
+            <input id="succinctAnchor" spellcheck="false" autocomplete="off" />
+            <small id="succinctAnchorHint" class="hint"></small>
+          </label>
+          <div class="row2">
+            <button id="succinctVerify" class="btn soft" data-i18n="suc.verify">Verify now</button>
+            <button id="succinctAnchorSave" class="btn soft" data-i18n="suc.pin">Save anchor</button>
+          </div>
+          <label class="row"><span data-i18n="suc.keep">Keep following the chain when all windows are closed</span><input id="succinctKeep" type="checkbox" class="switch" /></label>
+          <p id="succinctMsg" class="hint" role="status"></p>
+        </div>
         <div id="srvNet" class="seg" role="tablist">
           <button class="seg-btn" data-net="main" data-i18n="net.main">Mainnet</button>
           <button class="seg-btn" data-net="testnet" data-i18n="net.testnet">Testnet</button>

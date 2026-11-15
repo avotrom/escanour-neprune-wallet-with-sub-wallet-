@@ -19,6 +19,7 @@ import * as db from './lib/db.js';
 import * as vault from './lib/vault.js';
 import * as rpc from './lib/rpc.js';
 import * as settingsStore from './lib/settings.js';
+import * as succinct from './lib/succinct.js';
 import { t, setLanguage } from './lib/i18n.js';
 import { activeWatchIds, contactAddresses, decorateWatch, singleFlight } from './lib/watch-model.js';
 
@@ -1015,7 +1016,8 @@ function performSync(options={}) {
     }
   }));
 }
-const syncOnce=singleFlight(()=>performSync());
+// In node mode every run ends by holding the wallet against the proven tip.
+const syncOnce=singleFlight(()=>performSync().finally(()=>refreshProven(undefined,{nudge:false}).catch(()=>{})));
 
 // --------------------------------------------- blocks in strict order -----
 
@@ -1424,6 +1426,8 @@ async function offscreenAlive() {
 }
 
 async function closeOffscreenIfIdle() {
+  // The succinct node lives in that page; it stays for as long as node mode is on.
+  if (succinct.enabled(await settingsStore.load())) return;
   for (const id of await db.keys(db.STORES.sends)) {
     const rec = await getSend(id);
     if (rec && ['proving', 'proved', 'submitting'].includes(rec.status)) return;
@@ -1453,6 +1457,71 @@ async function offscreenBusyWith() {
   } catch {
     return null;
   }
+}
+
+// -------------------------------------------------------- succinct node ----
+//
+// Light mode trusts the sync server for chain validity. In node mode the
+// offscreen page verifies the recursive proof of each node's tip
+// (node-runner.js) and leaves the verdict in IndexedDB. Here that verdict is
+// tied to the wallet: the block the wallet scanned at the proven height must
+// be the proven block, and its mutator set the proven mutator set. The node
+// needs no keys, so it runs while the wallet is locked; the comparison needs
+// the wallet's state and waits for an unlock.
+
+/** Start or stop the node loop to match the settings. */
+async function ensureSuccinct() {
+  const s = await settingsStore.load();
+  if (!succinct.available()) return false;
+  if (!succinct.enabled(s)) {
+    if (await offscreenAlive()) await chrome.runtime.sendMessage({ target: 'offscreen', type: 'succinct', action: 'sync' }).catch(() => {});
+    await closeOffscreenIfIdle().catch(() => {});
+    return false;
+  }
+  await toOffscreen({ type: 'succinct', action: 'sync' });
+  return true;
+}
+
+/** Public chain data the node module can use to validate the next block in
+ *  full: the mutator set the wallet has reached. Nothing here is secret. */
+async function publishMutatorSet(wallet, network, snap) {
+  if (!snap || !succinct.enabled(await settingsStore.load())) return;
+  const held = await db.get(db.STORES.kv, `succinctMsa:${network}`);
+  if (held?.height === snap.height) return;
+  await db.put(db.STORES.kv, `succinctMsa:${network}`, { height: snap.height, bytes: wallet.mutatorSet(snap.state) });
+}
+
+/** Compare the wallet with the latest proven tip and publish the result. */
+async function refreshProven(network, { nudge = true } = {}) {
+  const s = await settingsStore.load();
+  const n = network || s.network;
+  if (!succinct.enabled(s)) return setStatus({ proven: { state: 'off' } }, n);
+  const record = await db.get(db.STORES.kv, `succinct:${n}`);
+  let match = 'unknown';
+  let walletHeight = null;
+  if (record?.best?.proven && n === s.network) {
+    await exclusive(async () => {
+      const w = await openWallet();
+      if (!w || w.s.network !== n) return;
+      const snap = await latestSnapshot(w.key, n);
+      if (!snap) return;
+      walletHeight = snap.height;
+      match = w.wallet.provenMatch(snap.state, JSON.stringify(record.best));
+      await publishMutatorSet(w.wallet, n, snap).catch(() => {});
+    });
+  }
+  const proven = { ...succinct.provenState(s, record, match), walletHeight };
+  const patch = { proven };
+  if (proven.state === 'diverged') patch.error = 'SUCCINCT_DIVERGED: the blocks this wallet received are not on the chain the proofs establish. Do not rely on this balance. Change the sync server in Settings > Servers and rescan.';
+  if (proven.state === 'conflict') patch.error = 'SUCCINCT_CONFLICT: your two nodes prove chains with different histories. Set the trust anchor in Settings > Servers.';
+  const st = await setStatus(patch, n);
+  // The node saw the chain move before the wallet did: catch up now.
+  if (nudge && proven.state === 'syncing' && walletHeight != null && walletHeight < record.best.height) syncOnce().catch(() => {});
+  // The wallet is ahead of the last verdict: ask for a fresh one.
+  if (nudge && proven.state === 'syncing' && walletHeight != null && walletHeight > record.best.height) {
+    chrome.runtime.sendMessage({ target: 'offscreen', type: 'succinct', action: 'verify' }).catch(() => {});
+  }
+  return st;
 }
 
 // ----------------------------------------------------------------- send ----
@@ -1522,6 +1591,7 @@ async function startSend(req) {
     if(req.networkContext!==network || req.walletMode!==activeMode(s))throw new Error('The selected wallet changed. Review this payment again.');
     const st=await status(network);
     if(st.fastPending||st.fastPhase||(st.height!=null&&st.tip!=null&&st.height<st.tip))throw new Error('Wallet recovery or syncing is still running. Wait until it is up to date.');
+    if (succinct.enabled(s) && succinct.blocksSending(st.proven)) throw new Error('This wallet\'s blocks are not on the proven chain. Fix the sync server in Settings > Servers before sending.');
     const busy = await activeSend(network);
     if (busy) throw new Error('A payment is still being sent. Wait until it finishes, or open it from the home page.');
     const rec = {
@@ -2467,6 +2537,18 @@ const commands = {
 
   async saveSettings(patch) {
     const clean = { ...patch };
+    // A locked wallet keeps its routing: whoever has the computer but not the
+    // password must not be able to point it at another server, switch Tor
+    // off or shorten nothing but the look of the screen.
+    if ((await vault.exists().catch(() => false)) && !(await vault.sessionKey())) {
+      const open = new Set(['theme', 'language', 'currency', 'hideAssets']);
+      const refused = Object.keys(clean).filter((k) => !open.has(k));
+      if (refused.length) throw new Error('Unlock the wallet to change this setting.');
+    }
+    if ('succinct' in clean) {
+      clean.succinct = clean.succinct === true;
+      if (clean.succinct && !succinct.available()) throw new Error('This build has no node module. Install the node build to verify the chain yourself.');
+    }
     if('waitForFreshBlock' in clean){clean.waitForFreshBlock=clean.waitForFreshBlock===true;clean.sendTimingConfigured=true;}
     if (clean.privateNotifications === true && (await settingsStore.load()).network === 'main') {
       throw new Error('Private app notifications are experimental and disabled on mainnet.');
@@ -2501,7 +2583,63 @@ const commands = {
     if('waitForFreshBlock' in clean&&!saved.waitForFreshBlock)resumeSends().catch(()=>{});
     // Servers or Tor changed: the proxy script must name the right hosts.
     if ('tor' in clean || 'torPort' in clean || clean.servers) await applyTor({ check: 'tor' in clean || 'torPort' in clean || Boolean(clean.servers&&saved.tor) }).catch(() => {});
+    if ('succinct' in clean || clean.servers) {
+      await ensureSuccinct().catch(() => {});
+      await refreshProven(saved.network, { nudge: false }).catch(() => {});
+    }
     return saved;
+  },
+
+  // ---- succinct node ----
+
+  /** Asked by the offscreen page, which cannot see the Tor state itself. */
+  async assertRoute({ url }) {
+    await rpc.assertRoute(String(url || ''));
+    return true;
+  },
+
+  async succinctStatus({ network } = {}) {
+    const s = await settingsStore.load();
+    const n = settingsStore.NETWORKS.includes(network) ? network : s.network;
+    const record = (await db.get(db.STORES.kv, `succinct:${n}`)) || null;
+    const anchor = succinct.anchorFor(n, await db.get(db.STORES.kv, `succinctAnchor:${n}`));
+    return {
+      available: succinct.available(),
+      enabled: succinct.enabled(s),
+      network: n,
+      targets: succinct.targets(s, n),
+      anchor,
+      record,
+      proven: n === s.network ? (await status(n)).proven || succinct.provenState(s, record, 'unknown') : succinct.provenState(s, record, 'unknown'),
+      keepRunning: Boolean(await Promise.resolve(chrome.permissions?.contains({ permissions: ['background'] })).catch(() => false)),
+    };
+  },
+
+  /** Verify the nodes' tips now, then compare with the wallet. */
+  async succinctVerify() {
+    if (!(await ensureSuccinct())) throw new Error('Turn the succinct node on first.');
+    const r = await toOffscreen({ type: 'succinct', action: 'verify' });
+    if (r && r.ok === false) throw new Error(r.error || 'The node module did not answer.');
+    await refreshProven(undefined, { nudge: false });
+    return commands.succinctStatus();
+  },
+
+  /** Set, replace or (empty hash) forget the pinned trust anchor: the hash of
+   *  the last block below the activation height. Needs an unlocked wallet. */
+  async succinctAnchor({ network, hash }) {
+    await requireWallet();
+    const s = await settingsStore.load();
+    const n = settingsStore.NETWORKS.includes(network) ? network : s.network;
+    const h = String(hash || '').trim().toLowerCase();
+    if (succinct.KNOWN_ANCHORS[n]) throw new Error('This build has the trust anchor built in; it cannot be changed here.');
+    if (h && !succinct.DIGEST_HEX.test(h)) throw new Error('A block hash is 80 hexadecimal characters.');
+    if (h) await db.put(db.STORES.kv, `succinctAnchor:${n}`, { hash: h, source: 'user', at: Date.now() });
+    else await db.del(db.STORES.kv, `succinctAnchor:${n}`);
+    // Verdicts made against the old anchor no longer stand.
+    await db.del(db.STORES.kv, `succinct:${n}`);
+    await refreshProven(n, { nudge: false }).catch(() => {});
+    if (succinct.enabled(s)) toOffscreen({ type: 'succinct', action: 'verify' }).catch(() => {});
+    return commands.succinctStatus({ network: n });
   },
 
   async torStatus() {
@@ -2854,8 +2992,20 @@ const commands = {
   },
 };
 
-chrome.runtime.onMessage.addListener((msg, _sender, sendResponse) => {
+chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
   if (msg?.target !== 'background') return false;
+  // Only this extension's own pages may drive the wallet. The manifest
+  // declares no content scripts and no externally_connectable, so nothing
+  // else should reach this listener; if a later change opens one, it still
+  // stops here.
+  if (sender?.id && sender.id !== chrome.runtime.id) return false;
+  if (sender?.tab && sender.url && !sender.url.startsWith(chrome.runtime.getURL(''))) return false;
+
+  // From the node loop in the offscreen page: a new verdict is stored.
+  if (msg.type === 'succinctTip') {
+    keepAlive(() => refreshProven(msg.network)).catch(() => {});
+    return false;
+  }
 
   // From the offscreen page.
   if (msg.type === 'proveProgress') {
@@ -2911,6 +3061,7 @@ panelOnClick();
 
 chrome.runtime.onInstalled.addListener(async (details) => {
   chrome.alarms.create('sync', { periodInMinutes: 1 });
+  ensureSuccinct().catch(() => {});
   panelOnClick();
   if (details?.reason === 'install' && !(await vault.exists().catch(() => false))) {
     Promise.resolve(chrome.tabs.create({ url: chrome.runtime.getURL('popup.html?view=tab') })).catch(() => {});
@@ -2918,6 +3069,8 @@ chrome.runtime.onInstalled.addListener(async (details) => {
 });
 chrome.runtime.onStartup.addListener(() => {
   chrome.alarms.create('sync', { periodInMinutes: 1 });
+  // The node needs no keys: it follows the chain from browser start.
+  ensureSuccinct().catch(() => {});
   // The proxy setting survives a restart; check Tor is still there.
   applyTor().catch(() => {});
 });
@@ -2928,6 +3081,9 @@ chrome.alarms.onAlarm.addListener(async (alarm) => {
     return;
   }
   if (alarm.name === 'sync') {
+    // Chrome may discard the offscreen page under memory pressure; the
+    // one-minute alarm puts the node back.
+    await ensureSuccinct().catch(() => {});
     if (!(await vault.sessionKey())) return;
     await maybeRecheckTor().catch(() => {});
     await syncOnce().catch(() => {});

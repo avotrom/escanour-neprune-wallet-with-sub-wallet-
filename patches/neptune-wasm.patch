@@ -1,8 +1,8 @@
 diff --git a/neptune-consensus/Cargo.toml b/neptune-consensus/Cargo.toml
-index 360398b..818ffa3 100644
+index c7ad6275..6240175d 100644
 --- a/neptune-consensus/Cargo.toml
 +++ b/neptune-consensus/Cargo.toml
-@@ -68,15 +68,6 @@ serde_json = "1.0"
+@@ -67,15 +67,6 @@ serde_json = "1.0"
  strum = { version = "0.27.0", features = ["derive"] }
  tasm-lib = "9.0.0"
  thiserror = "1.0.65"
@@ -17,8 +17,8 @@ index 360398b..818ffa3 100644
 -] }
  tracing = "0.1"
  
- neptune-job-queue = { version = "0.19.0", path = "../neptune-job-queue" }
-@@ -131,3 +122,19 @@ harness = false
+ neptune-job-queue = { version = "0.20.1", path = "../neptune-job-queue" }
+@@ -132,3 +123,19 @@ harness = false
  
  [lints]
  workspace = true
@@ -38,8 +38,168 @@ index 360398b..818ffa3 100644
 +
 +[target.'cfg(target_arch = "wasm32")'.dependencies]
 +tokio = { version = "1.47", features = ["io-util", "macros", "rt", "sync", "time"] }
+diff --git a/neptune-consensus/src/block/mod.rs b/neptune-consensus/src/block/mod.rs
+index 930150e9..cae96eca 100644
+--- a/neptune-consensus/src/block/mod.rs
++++ b/neptune-consensus/src/block/mod.rs
+@@ -856,6 +856,155 @@ impl Block {
+         Ok(parent_info)
+     }
+ 
++    /// Light-wallet patch: [`Self::validate_tip`] without the async verifier.
++    ///
++    /// wasm32 has no tokio runtime to `spawn_blocking` on, so the proof is
++    /// verified on the calling thread. Every rule is the one
++    /// [`Self::validate_tip`] applies; nothing is re-implemented here.
++    pub fn validate_tip_sync(
++        &self,
++        parent_mutator_set: &MutatorSetAccumulator,
++        now: Timestamp,
++        network: Network,
++    ) -> Result<ParentBlockInfo, BlockValidationError> {
++        let parent_info = self.parent_info_from_claim(network)?;
++        self.validate_except_proof(&parent_info, parent_mutator_set, None, now, network)?;
++        self.validate_proof_sync(network)?;
++        Ok(parent_info)
++    }
++
++    /// Light-wallet patch: the rules of [`Self::validate_tip`] that can be
++    /// judged without the mutator set after the parent.
++    ///
++    /// Establishes that
++    ///  - the block's proof verifies for its appendix (1.c, 1.d),
++    ///  - the appendix holds the transaction-validity claim and the
++    ///    predecessor-is-valid claim (1.a, 1.b),
++    ///  - the header continues the parent that claim describes: digest
++    ///    (0.b), minimum block time (0.d), difficulty (0.e) and cumulative
++    ///    proof-of-work (0.f),
++    ///  - every rule that reads the block alone holds
++    ///    ([`Self::solo_validate`]).
++    ///
++    /// The parent, and by induction every block down to the activation
++    /// parent, is therefore valid. What is *not* established is this block's
++    /// own mutator set update (2.b, 2.d, 2.e, 2.t, 2.w, 2.x), the claim of
++    /// knowing the archival mutator set, and the evolution of the lustration
++    /// counter: those need the parent's mutator set and are proven by this
++    /// block's successor. Callers must treat the *parent* as the proven tip.
++    ///
++    /// As with [`Self::validate_tip`], proof of work is checked separately
++    /// and the caller must compare `activation_parent_hash` against the hash
++    /// it knows.
++    pub fn validate_tip_header_sync(
++        &self,
++        now: Timestamp,
++        network: Network,
++    ) -> Result<ParentBlockInfo, BlockValidationError> {
++        let parent = self.parent_info_from_claim(network)?;
++        let new_height = self.header().height;
++        let consensus_rule_set = ConsensusRuleSet::infer_from(network, new_height);
++        let Some(parent_height) = new_height.previous() else {
++            return Err(BlockValidationError::BlockHeight);
++        };
++
++        // 0.b)
++        if parent.hash != self.kernel.header.prev_block_digest {
++            return Err(BlockValidationError::PrevBlockDigest);
++        }
++
++        // 0.d)
++        if parent.timestamp + network.minimum_block_time() > self.kernel.header.timestamp {
++            return Err(BlockValidationError::MinimumBlockTime);
++        }
++
++        // 0.e)
++        let expected_difficulty =
++            if Self::should_reset_difficulty(network, self.header().timestamp, parent.timestamp) {
++                network.genesis_difficulty()
++            } else {
++                difficulty_control(
++                    self.header().timestamp,
++                    parent.timestamp,
++                    parent.difficulty,
++                    network.target_block_interval(),
++                    parent_height,
++                )
++            };
++        let new_difficulty = self.kernel.header.difficulty;
++        if new_difficulty != expected_difficulty {
++            return Err(BlockValidationError::Difficulty);
++        }
++
++        // 0.f)
++        let delta_difficulty = if consensus_rule_set.use_parent_difficulty() {
++            parent.difficulty
++        } else {
++            new_difficulty
++        };
++        if self.header().cumulative_proof_of_work
++            != parent.cumulative_proof_of_work + delta_difficulty
++        {
++            return Err(BlockValidationError::CumulativeProofOfWork);
++        }
++
++        self.solo_validate_without_proof(now, network)?;
++
++        // 1.a) 1.b)
++        let required_claims = BlockAppendix::consensus_claims_without_parent(
++            self.body(),
++            new_height,
++            network,
++        );
++        self.validate_appendix(&required_claims)?;
++
++        // 1.c) 1.d)
++        self.validate_proof_sync(network)?;
++
++        Ok(parent)
++    }
++
++    /// The parent as this block's predecessor-is-valid claim describes it.
++    fn parent_info_from_claim(
++        &self,
++        network: Network,
++    ) -> Result<ParentBlockInfo, BlockValidationError> {
++        let height = self.header().height;
++        if !ConsensusRuleSet::infer_from(network, height).requires_predecessor_claim() {
++            return Err(BlockValidationError::AppendixMissingClaim);
++        }
++        let required_piv =
++            PredecessorIsValid::required_claim(self.body().mast_hash(), height, network);
++        self.appendix()
++            .find(&required_piv)
++            .and_then(|claim| PredecessorIsValid::parse_output(&claim.output))
++            .ok_or(BlockValidationError::AppendixMissingClaim)
++    }
++
++    /// The proof is a single proof, and it verifies. Synchronous.
++    fn validate_proof_sync(&self, network: Network) -> Result<(), BlockValidationError> {
++        // 1.c)
++        let BlockProof::SingleProof(block_proof) = &self.proof else {
++            return Err(BlockValidationError::ProofQuality);
++        };
++
++        // 1.d)
++        let consensus_rule_set = ConsensusRuleSet::infer_from(network, self.header().height);
++        let claim = BlockProgram::claim(self.body(), self.appendix(), consensus_rule_set);
++        // Mirrors `verifier::verify`: mock proofs only where the network
++        // itself accepts them.
++        let verdict = if network.use_mock_proof() {
++            block_proof.is_valid_mock()
++        } else {
++            crate::proof_abstractions::verifier::verify_sync(&claim, &block_proof.clone().into())
++        };
++        if !verdict {
++            return Err(BlockValidationError::ProofValidity);
++        }
++
++        Ok(())
++    }
++
+     /// Verify a block against previous block and return detailed error
+     ///
+     /// This method assumes that the previous block is valid.
 diff --git a/neptune-consensus/src/lib.rs b/neptune-consensus/src/lib.rs
-index 5531955..885f05b 100644
+index 55319559..885f05be 100644
 --- a/neptune-consensus/src/lib.rs
 +++ b/neptune-consensus/src/lib.rs
 @@ -36,6 +36,9 @@ pub mod prelude;
@@ -76,7 +236,7 @@ index 5531955..885f05b 100644
          let duration = elapsed.as_secs_f64();
  
 diff --git a/neptune-consensus/src/proof_abstractions/tasm/prover_job.rs b/neptune-consensus/src/proof_abstractions/tasm/prover_job.rs
-index 6051df9..a119964 100644
+index 6051df9a..a1199649 100644
 --- a/neptune-consensus/src/proof_abstractions/tasm/prover_job.rs
 +++ b/neptune-consensus/src/proof_abstractions/tasm/prover_job.rs
 @@ -78,6 +78,10 @@ pub enum VmProcessError {
@@ -151,7 +311,7 @@ index 6051df9..a119964 100644
  
      use std::process::Output;
 diff --git a/neptune-consensus/src/proof_abstractions/triton_vm_job_queue.rs b/neptune-consensus/src/proof_abstractions/triton_vm_job_queue.rs
-index e33f6df..c5a5153 100644
+index e33f6df3..c5a51538 100644
 --- a/neptune-consensus/src/proof_abstractions/triton_vm_job_queue.rs
 +++ b/neptune-consensus/src/proof_abstractions/triton_vm_job_queue.rs
 @@ -82,7 +82,13 @@ fn worker_runtime() -> &'static tokio::runtime::Runtime {
@@ -170,7 +330,7 @@ index e33f6df..c5a5153 100644
              .thread_name("triton-vm-job-queue")
              .build()
 diff --git a/neptune-primitives/Cargo.toml b/neptune-primitives/Cargo.toml
-index e7cbd36..effb303 100644
+index 64455d45..893bd56b 100644
 --- a/neptune-primitives/Cargo.toml
 +++ b/neptune-primitives/Cargo.toml
 @@ -25,7 +25,6 @@ test-helpers = ["arbitrary-impls"]
@@ -200,7 +360,7 @@ index e7cbd36..effb303 100644
 +directories = "5.0"
 +tokio = { version = "1.47", features = ["fs"] }
 diff --git a/neptune-primitives/src/lib.rs b/neptune-primitives/src/lib.rs
-index b09f00f..049744b 100644
+index b09f00f4..049744bb 100644
 --- a/neptune-primitives/src/lib.rs
 +++ b/neptune-primitives/src/lib.rs
 @@ -12,6 +12,7 @@ pub use tasm_lib::prelude::twenty_first;

@@ -1,0 +1,6 @@
+# Fetched or generated; never committed.
+/vendor/
+/target/
+/dist/
+/extension/pkg/
+/extension/THIRD_PARTY/

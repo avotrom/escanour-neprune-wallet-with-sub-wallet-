@@ -165,5 +165,41 @@ chrome.runtime.onMessage.addListener((msg, _sender, sendResponse) => {
     if (msg.sendId) cancelled.add(msg.sendId);
     if (!msg.sendId || active?.sendId === msg.sendId) stopAll();
   }
+  if (msg.type === 'succinct') {
+    // 'sync': follow the settings (start or stop). 'verify': one forced round.
+    nodeRunner()
+      .then(async (node) => {
+        if (!node) return sendResponse({ ok: false, error: 'This build has no node module.' });
+        if (msg.action === 'verify') {
+          node.start();
+          const record = await node.tick({ force: true });
+          return sendResponse({ ok: true, running: node.running(), error: record?.error || null });
+        }
+        if (await succinctWanted()) node.start();
+        else node.stop();
+        sendResponse({ ok: true, running: node.running() });
+      })
+      .catch((e) => sendResponse({ ok: false, error: String(e?.message || e) }));
+    return true;
+  }
   return false;
 });
+
+// ------------------------------------------------------- succinct node ----
+// The node loop lives in this page because Chrome does not stop it (see
+// node-runner.js). The light build ships without the module: the import
+// fails and node mode simply does not exist there.
+let nodeModule;
+async function nodeRunner() {
+  if (nodeModule === undefined) nodeModule = await import('./node-runner.js').catch(() => null);
+  return nodeModule;
+}
+async function succinctWanted() {
+  const [{ load }, succinct] = await Promise.all([import('./lib/settings.js'), import('./lib/succinct.js')]);
+  return succinct.enabled(await load());
+}
+// This page may be created for proving, or re-created after a browser
+// restart: either way the node resumes without waiting for the worker.
+succinctWanted()
+  .then(async (on) => on && (await nodeRunner())?.start())
+  .catch(() => {});

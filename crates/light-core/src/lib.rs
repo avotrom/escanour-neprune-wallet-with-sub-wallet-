@@ -30,6 +30,7 @@ pub mod private_notification;
 pub mod rpc;
 pub mod send;
 pub mod state;
+pub mod succinct;
 pub mod sync;
 pub mod watch;
 pub mod watch_fast;

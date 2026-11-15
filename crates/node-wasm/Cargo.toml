@@ -1,0 +1,21 @@
+[package]
+name = "node-wasm"
+description = "Succinct node module: verifies a tip block's recursive proof and proof-of-work. No keys, no prover. Loaded only when node mode is on."
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+publish.workspace = true
+
+[lib]
+crate-type = ["cdylib", "rlib"]
+
+[dependencies]
+light-core = { path = "../light-core" }
+bincode.workspace = true
+serde_json.workspace = true
+wasm-bindgen.workspace = true
+console_error_panic_hook.workspace = true
+
+[target.'cfg(target_arch = "wasm32")'.dependencies]
+getrandom_02 = { package = "getrandom", version = "0.2", features = ["js"] }
+getrandom_03 = { package = "getrandom", version = "0.3", features = ["wasm_js"] }

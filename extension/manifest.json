@@ -2,9 +2,9 @@
   "manifest_version": 3,
   "name": "Escanour Neptune Wallet",
   "short_name": "Escanour",
-  "version": "0.23.4",
+  "version": "0.24.0",
   "author": "avotrom",
-  "description": "Neptune light-wallet prototype with separate sub-wallets, local transaction proving and selectable asset-recovery methods.",
+  "description": "Neptune wallet with sub-wallets and local proving. Runs without a node, or as a succinct node that verifies the chain itself.",
   "icons": {
     "16": "icons/icon16.png",
     "32": "icons/icon32.png",
@@ -44,6 +44,9 @@
     "http://localhost/*",
     "http://127.0.0.1/*"
   ],
+  "optional_permissions": [
+    "background"
+  ],
   "content_security_policy": {
     "extension_pages": "script-src 'self' 'wasm-unsafe-eval'; object-src 'self'"
   },
@@ -51,5 +54,5 @@
   "side_panel": {
     "default_path": "popup.html?view=panel"
   },
-  "version_name": "0.23.4 refresh, recovery and node fallback prototype"
+  "version_name": "0.24.0 succinct node"
 }

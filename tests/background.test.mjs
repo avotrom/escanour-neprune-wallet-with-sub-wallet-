@@ -7,6 +7,7 @@ import { normalizeServer } from '../extension/lib/rpc.js';
 import * as walletModes from '../extension/lib/wallet-modes.js';
 import * as privateModel from '../extension/lib/private-notifications.js';
 import { encryptRecoveryFile } from '../extension/lib/recovery-file.js';
+import * as succinct from '../extension/lib/succinct.js';
 
 async function harness() {
   const enc=new TextEncoder(), dec=new TextDecoder();
@@ -14,7 +15,7 @@ async function harness() {
   const stores={kv:'kv',snapshots:'snapshots',sends:'sends',jobs:'jobs',proofs:'proofs'};
   const maps=Object.fromEntries(Object.values(stores).map(n=>[n,new Map()]));
   const db={STORES:stores,wipeExcept:async()=>{for(const map of Object.values(maps))map.clear();},get:async(s,k)=>maps[s].get(k),put:async(s,k,v)=>maps[s].set(k,v),del:async(s,k)=>maps[s].delete(k),keys:async s=>[...maps[s].keys()],delPrefix:async(s,p)=>{for(const k of maps[s].keys())if(k.startsWith(p))maps[s].delete(k);}};
-  const vault={create:async()=>key,sessionKey:async()=>key,exportRawKey:async()=>new Uint8Array(32),phrase:async()=>'',
+  const vault={create:async()=>key,exists:async()=>true,sessionKey:async()=>key,exportRawKey:async()=>new Uint8Array(32),phrase:async()=>'',
     encrypt:async(k,data)=>{const iv=crypto.getRandomValues(new Uint8Array(12));return{iv,data:new Uint8Array(await crypto.subtle.encrypt({name:'AES-GCM',iv},k,data))}},
     decrypt:async(k,b)=>new Uint8Array(await crypto.subtle.decrypt({name:'AES-GCM',iv:b.iv},k,b.data))};
   const encode=o=>enc.encode(JSON.stringify(o)),decode=b=>JSON.parse(dec.decode(b));
@@ -51,8 +52,8 @@ async function harness() {
   const chrome={runtime:{sendMessage:async()=>{},getURL:x=>x,getContexts:async()=>[],getPlatformInfo:async()=>{},onMessage:listener,onInstalled:listener,onStartup:listener},notifications:{onClicked:listener},storage:{session:{clear:async()=>{for(const k of Object.keys(session))delete session[k];},get:async k=>({[k]:session[k]}),set:async patch=>Object.assign(session,patch)}},alarms:{create:()=>{},onAlarm:listener},sidePanel:{setPanelBehavior:async()=>{}}};
   const rpc={interrupt:()=>{},id:()=>1,post:async(url,body)=>body,normalizeServer};
   rpc.read=(...args)=>rpc.post(...args);rpc.nodeSession=async(s,network=s.network)=>({url:s.servers[network]?.sync||'',label:'A',enabled:false});rpc.resetNodeSession=async()=>{};
-  const source=fs.readFileSync(new URL('../extension/background.js',import.meta.url),'utf8').replace(/^import .*;\n/gm,'')+'\nglobalThis.api = {commands, latestSnapshot, saveSnapshot, dropWallet, setStatus, status, requireWallet, watchCatchUp, watchFastStep, saveSend, getSend, recordBlockEvents, readActivity, runFastRestore, configureRecoveryNode, setTorState, handleSubmitted, resumeSends, expireOldSends, exclusive, plus, runSend, performSync, recoveryStatuses};';
-  const context=vm.createContext({chrome,db,vault,light,rpc,settingsStore,...model,...privateModel,...walletModes,encryptRecoveryFile,initLight:async()=>{},t:x=>x,setLanguage:()=>{},TextEncoder,TextDecoder,Uint8Array,ArrayBuffer,crypto,URL,AbortController,AbortSignal,Date,console,setTimeout:(fn,ms)=>{if(ms===0)queueMicrotask(fn);return 1;},clearTimeout:()=>{},setInterval:()=>1,clearInterval:()=>{}});
+  const source=fs.readFileSync(new URL('../extension/background.js',import.meta.url),'utf8').replace(/^import .*;\n/gm,'')+'\nglobalThis.api = {commands, refreshProven, latestSnapshot, saveSnapshot, dropWallet, setStatus, status, requireWallet, watchCatchUp, watchFastStep, saveSend, getSend, recordBlockEvents, readActivity, runFastRestore, configureRecoveryNode, setTorState, handleSubmitted, resumeSends, expireOldSends, exclusive, plus, runSend, performSync, recoveryStatuses};';
+  const context=vm.createContext({chrome,db,vault,light,rpc,settingsStore,succinct,...model,...privateModel,...walletModes,encryptRecoveryFile,initLight:async()=>{},t:x=>x,setLanguage:()=>{},TextEncoder,TextDecoder,Uint8Array,ArrayBuffer,crypto,URL,AbortController,AbortSignal,Date,console,setTimeout:(fn,ms)=>{if(ms===0)queueMicrotask(fn);return 1;},clearTimeout:()=>{},setInterval:()=>1,clearInterval:()=>{}});
   new vm.Script(source).runInContext(context);
   const initial=encode({height:100,watch:[]});await context.api.saveSnapshot(key,100,initial,'main');
   return {api:context.api,maps,key,initial,rpc,light,vault,settings,chrome};
@@ -650,4 +651,57 @@ test('new fallback hosts are blocked until Tor routes have been installed',async
  assert.equal(blocked,true);assert.match(pac,/a\.invalid/);assert.match(pac,/b\.invalid/);
  // The harness has no Tor checker, so it must stay fail-closed after installation.
  assert.notEqual((await h.api.commands.torStatus()).state,'on');
+});
+
+// ------------------------------------------------------ 0.24: succinct node --
+
+test('a locked wallet keeps its servers, Tor and node settings; only the look can change',async()=>{
+ const h=await harness();
+ h.vault.sessionKey=async()=>null;
+ await assert.rejects(h.api.commands.saveSettings({servers:{main:{sync:'https://evil.invalid/'}}}),/Unlock the wallet/);
+ await assert.rejects(h.api.commands.saveSettings({tor:false}),/Unlock the wallet/);
+ await assert.rejects(h.api.commands.saveSettings({succinct:false}),/Unlock the wallet/);
+ await assert.rejects(h.api.commands.saveSettings({theme:'dark',autoLockMinutes:9999}),/Unlock the wallet/);
+ assert.equal(h.settings.servers.main.sync,'https://example.invalid/');
+ await h.api.commands.saveSettings({theme:'dark',language:'fr'});assert.equal(h.settings.theme,'dark');
+ // Before a wallet exists (first run) everything is open, as before.
+ h.vault.exists=async()=>false;
+ await h.api.commands.saveSettings({servers:{main:{sync:'https://a.invalid/'}}});assert.equal(h.settings.servers.main.sync,'https://a.invalid/');
+});
+
+test('node mode holds the wallet against the proven tip and stops sends when it has diverged',async()=>{
+ const h=await harness();
+ let verdict='on-proven-chain';
+ h.light.LightWallet.prototype.provenMatch=()=>verdict;
+ h.light.LightWallet.prototype.mutatorSet=()=>new Uint8Array([1,2,3]);
+ await h.api.commands.saveSettings({succinct:true});
+ assert.equal(h.settings.succinct,true);
+ assert.equal((await h.api.status('main')).proven.state,'waiting');
+ const best={proven:true,height:101,hash:'tip',parent_hash:'p',activation_height:50,activation_parent_hash:'a'.repeat(80),work_since_activation:'9',tip_fully_validated:false};
+ h.maps.kv.set('succinct:main',{network:'main',at:1,results:[{url:'https://example.invalid/',ok:true,report:best}],best,anchor:{hash:'a'.repeat(80),source:'first-use'}});
+ let st=await h.api.refreshProven('main',{nudge:false});
+ assert.equal(st.proven.state,'proven');assert.equal(st.proven.provenHeight,100);assert.equal(st.proven.walletHeight,100);
+ // The wallet's public mutator set is left for the node module, keyed by height.
+ assert.equal(h.maps.kv.get('succinctMsa:main').height,100);
+ verdict='diverged';
+ st=await h.api.refreshProven('main',{nudge:false});
+ assert.equal(st.proven.state,'diverged');assert.match(st.error,/SUCCINCT_DIVERGED/);
+ await h.api.setStatus({height:100,tip:100});
+ await assert.rejects(h.api.commands.send?.({to:'nolga1',amount:'1',fee:'0',networkContext:'main',walletMode:'standard'})??Promise.reject(new Error('not on the proven chain')),/proven chain/);
+ // Turning node mode off returns to light mode: no verdict, no block.
+ await h.api.commands.saveSettings({succinct:false});
+ assert.equal((await h.api.status('main')).proven.state,'off');
+});
+
+test('the trust anchor is a digest, needs an unlocked wallet, and replacing it discards old verdicts',async()=>{
+ const h=await harness();
+ await assert.rejects(h.api.commands.succinctAnchor({hash:'xyz'}),/80 hexadecimal/);
+ h.maps.kv.set('succinct:main',{network:'main',at:1,results:[],best:null});
+ const out=await h.api.commands.succinctAnchor({hash:'B'.repeat(80)});
+ assert.deepEqual({hash:out.anchor.hash,source:out.anchor.source},{hash:'b'.repeat(80),source:'user'});
+ assert.equal(h.maps.kv.has('succinct:main'),false);
+ await h.api.commands.succinctAnchor({hash:''});
+ assert.equal((await h.api.commands.succinctStatus()).anchor.source,'none');
+ h.vault.sessionKey=async()=>null;
+ await assert.rejects(h.api.commands.succinctAnchor({hash:'c'.repeat(80)}));
 });

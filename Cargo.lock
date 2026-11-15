@@ -227,9 +227,9 @@ checksum = "d86b93f97252c47b41663388e6d155714a9d0c398b99f1005cbc5f978b29f445"
 
 [[package]]
 name = "bfieldcodec_derive"
-version = "0.7.1"
+version = "0.7.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "c4f7308e7d82c44dc1acb583abc3d2fc9c6453920312ef98a1c29ced05512a62"
+checksum = "31eeed2785c999e20b91158a336954133e24d7b90d6881f094b7662d27159cfe"
 dependencies = [
  "proc-macro2",
  "quote",
@@ -441,7 +441,7 @@ version = "3.1.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "faf9468729b8cbcea668e36183cb69d317348c2e08e994829fb56ebfdfbaac34"
 dependencies = [
- "windows-sys 0.61.2",
+ "windows-sys 0.48.0",
 ]
 
 [[package]]
@@ -689,7 +689,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "c54e03a951783e8b327515db3f2a2fd0e3bed362a96b066f341ce66ed49b4ead"
 dependencies = [
  "data-encoding",
- "syn 3.0.6",
+ "syn 1.0.109",
 ]
 
 [[package]]
@@ -915,94 +915,6 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "cb4cb245038516f5f85277875cdaa4f7d2c9a0fa0468de06ed190163b1581fcf"
 dependencies = [
  "percent-encoding",
-]
-
-[[package]]
-name = "futures"
-version = "0.3.34"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "9a31d2a3fbaaeb2af2368bbdd904aa8e812d3c04a1ee10d3171f52d556e5d0a3"
-dependencies = [
- "futures-channel",
- "futures-core",
- "futures-executor",
- "futures-io",
- "futures-sink",
- "futures-task",
- "futures-util",
-]
-
-[[package]]
-name = "futures-channel"
-version = "0.3.34"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "b1f9e3d69d39e4862ffed03ed071a76f9a13ba1d9109d355b0f0aa6b15e393c4"
-dependencies = [
- "futures-core",
- "futures-sink",
-]
-
-[[package]]
-name = "futures-core"
-version = "0.3.34"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "92d699e522242e69e3003b94ecc1f960f3a5e015aa7c5d7486e65ad01dd94f5e"
-
-[[package]]
-name = "futures-executor"
-version = "0.3.34"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "031b47cf1a3c6cc8bc2fc76cd437f521619387907d469316e7c0bc278f1f5432"
-dependencies = [
- "futures-core",
- "futures-task",
- "futures-util",
-]
-
-[[package]]
-name = "futures-io"
-version = "0.3.34"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "53c0fa8157de1303bfffdaa1cc2a673bfffb60102f76b0ef4441659124373fed"
-
-[[package]]
-name = "futures-macro"
-version = "0.3.34"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "9fb9654ba8355388abeb8dcb4fc62f511300867002afc858860463bdd9fe0c44"
-dependencies = [
- "proc-macro2",
- "quote",
- "syn 3.0.6",
-]
-
-[[package]]
-name = "futures-sink"
-version = "0.3.34"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "1944426bf7d03f1d14f708785e4b33efd750b36d48a157b836b3efc15ede8e1d"
-
-[[package]]
-name = "futures-task"
-version = "0.3.34"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "cd417de3d1d015fc3bfd2b1ea46dfc7bab72ef86f1cc7cc9c78e728b34a6d1fd"
-
-[[package]]
-name = "futures-util"
-version = "0.3.34"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "0d50a92467f8ba5dd6e3ee5d4bd04d73ab2e4e1c44474a0674821dfce14b79bc"
-dependencies = [
- "futures-channel",
- "futures-core",
- "futures-io",
- "futures-macro",
- "futures-sink",
- "futures-task",
- "memchr",
- "pin-project-lite",
- "slab",
 ]
 
 [[package]]
@@ -1690,7 +1602,7 @@ dependencies = [
 
 [[package]]
 name = "neptune-consensus"
-version = "0.19.0"
+version = "0.20.1"
 dependencies = [
  "anyhow",
  "arbitrary",
@@ -1699,7 +1611,6 @@ dependencies = [
  "clap",
  "clienter",
  "field_count",
- "futures",
  "get-size2",
  "itertools",
  "neptune-job-queue",
@@ -1726,7 +1637,7 @@ dependencies = [
 
 [[package]]
 name = "neptune-job-queue"
-version = "0.19.0"
+version = "0.20.1"
 dependencies = [
  "async-trait",
  "rand 0.10.3",
@@ -1738,7 +1649,7 @@ dependencies = [
 
 [[package]]
 name = "neptune-mutator-set"
-version = "0.19.0"
+version = "0.20.1"
 dependencies = [
  "arbitrary",
  "get-size2",
@@ -1755,7 +1666,7 @@ dependencies = [
 
 [[package]]
 name = "neptune-primitives"
-version = "0.19.0"
+version = "0.20.1"
 dependencies = [
  "anyhow",
  "arbitrary",
@@ -1777,7 +1688,7 @@ dependencies = [
 
 [[package]]
 name = "neptune-rpc-api"
-version = "0.19.0"
+version = "0.20.1"
 dependencies = [
  "async-trait",
  "hex",
@@ -1799,7 +1710,7 @@ dependencies = [
 
 [[package]]
 name = "neptune-rpc-macros"
-version = "0.19.0"
+version = "0.20.1"
 dependencies = [
  "convert_case",
  "quote",
@@ -1808,7 +1719,7 @@ dependencies = [
 
 [[package]]
 name = "neptune-wallet"
-version = "0.19.0"
+version = "0.20.1"
 dependencies = [
  "aead",
  "aes-gcm",
@@ -1837,6 +1748,19 @@ dependencies = [
  "tiny-bip39",
  "tracing",
  "zeroize",
+]
+
+[[package]]
+name = "node-wasm"
+version = "0.23.4-alpha.1"
+dependencies = [
+ "bincode",
+ "console_error_panic_hook",
+ "getrandom 0.2.17",
+ "getrandom 0.3.4",
+ "light-core",
+ "serde_json",
+ "wasm-bindgen",
 ]
 
 [[package]]
@@ -2714,12 +2638,6 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "33f4fe9184a62d842c9ef383018f3306d8ba224fd9d836f56d7288308847c256"
 
 [[package]]
-name = "slab"
-version = "0.4.12"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "0c790de23124f9ab44544d7ac05d60440adc586479ce501c1d6d7da3cd8c9cf5"
-
-[[package]]
 name = "smallvec"
 version = "1.16.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -2871,7 +2789,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "32497e9a4c7b38532efcdebeef879707aa9f794296a4f0244f6f69e9bc8574bd"
 dependencies = [
  "fastrand",
- "getrandom 0.4.3",
+ "getrandom 0.3.4",
  "once_cell",
  "rustix",
  "windows-sys 0.61.2",
@@ -3011,9 +2929,9 @@ dependencies = [
 
 [[package]]
 name = "triton-air"
-version = "9.0.0"
+version = "9.0.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "78c5d94b0749a48dff6a8288e736fb2ed8cab0bceaea370b467c4b6dcbf87670"
+checksum = "5e11957cc2567356d80702c9a6461bbc934cde12f28ab9abe44dbef6fb415c8f"
 dependencies = [
  "arbitrary",
  "itertools",
@@ -3025,9 +2943,9 @@ dependencies = [
 
 [[package]]
 name = "triton-constraint-builder"
-version = "9.0.0"
+version = "9.0.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "106df42e9928393dbe5ab77caaa213024c078559a6de1bd26497c3449aea5a4d"
+checksum = "b5a2e4d1536f4f019758aac131cd7ef2a631c8f77459a5d06daa577ea41aab22"
 dependencies = [
  "itertools",
  "prettyplease",
@@ -3043,9 +2961,9 @@ dependencies = [
 
 [[package]]
 name = "triton-constraint-circuit"
-version = "9.0.0"
+version = "9.0.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "f4e20f03b5f3eff322b459c5d7f404f1e07d2cb99238af5a3a5bc4fcb6e89940"
+checksum = "42704802a387e46aa2d39bf869df8fa4678d8c2a9f6484b22b104b0812e87bbf"
 dependencies = [
  "arbitrary",
  "itertools",
@@ -3058,9 +2976,9 @@ dependencies = [
 
 [[package]]
 name = "triton-isa"
-version = "9.0.0"
+version = "9.0.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "ee6f49f05be9bf8ab5b10cdef4cef676db57e930f72866db0757a4445f6e29d5"
+checksum = "88cef36712c962891c52bbe5f78793daefccb2f616374fee6d85a03ff5b136cf"
 dependencies = [
  "arbitrary",
  "get-size2",
@@ -3077,9 +2995,9 @@ dependencies = [
 
 [[package]]
 name = "triton-vm"
-version = "9.0.0"
+version = "9.0.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "dc5c2b343f60bdaaff8f5174a237a32609a07cc865713b9b0f1f8f39c8839b58"
+checksum = "6a74420b62092a7aa1a021ec2fcce6456f723165d6d77c009fb4afc5005491bd"
 dependencies = [
  "arbitrary",
  "colored",
@@ -3109,9 +3027,9 @@ dependencies = [
 
 [[package]]
 name = "twenty-first"
-version = "3.0.0"
+version = "3.1.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "94fc33f2bb02d443dfb444a5181d8e2361295e59e8c8f84772d1572697221c1b"
+checksum = "33fbf487eb00d31e5c957491d92a6ef06a8920c44b8a8c40950b67f38d2c3314"
 dependencies = [
  "arbitrary",
  "bfieldcodec_derive",

@@ -1,4 +1,6 @@
-# Escanour Neptune Wallet 0.23.4 — three sub-wallets
+# Escanour Neptune Wallet 0.24.0 — succinct node, three sub-wallets
+
+**New in 0.24:** the wallet comes in two builds. `escanour-light` needs no node and trusts its sync server for chain validity, as before. `escanour-node` can also run as a succinct node: it verifies the chain's recursive proof in the browser (Settings > Servers). See [docs/SUCCINCT.md](docs/SUCCINCT.md) and [RELEASE-0.24.0.md](RELEASE-0.24.0.md). Neptune pin: v0.20.1.
 
 Standard is created by default. Create Auto-refresh or Encrypted only when wanted. Each sub-wallet has its own balance, Generation and EC Hybrid addresses, activity and change. Auto-refresh advances after confirmed payments locally; Encrypted adds a hidden receiver notification and optional message on test networks.
 
@@ -35,6 +37,7 @@ Details: [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md).
 scripts/vendor-neptune.sh   # pinned neptune-core + wasm patch -> vendor/
 scripts/check-wasm.sh       # step 0: does it compile for the browser?
 scripts/build.sh            # wasm modules -> extension/pkg/
+scripts/package.sh          # dist/escanour-light and dist/escanour-node
 ```
 
 Then open `chrome://extensions`, enable Developer mode, choose **Load unpacked**, and select the `extension/` folder.
@@ -60,6 +63,7 @@ Full instructions: [docs/BUILD.md](docs/BUILD.md).
 | `crates/light-core` | All wallet logic: keys, sync, membership proofs, coin selection, proof jobs |
 | `crates/light-wasm` | Browser bindings for light-core (no prover inside, so it loads fast) |
 | `crates/prover-wasm` | One proof job per call; loaded only in proving workers |
+| `crates/node-wasm` | Succinct node: verifies a tip block's proof; node build only |
 | `crates/light-cli` | Native test harness and benchmark for light-core |
 | `extension/` | Chrome MV3 extension: service worker, offscreen prover, popup |
 | `patches/neptune-wasm.patch` | The wasm32 compatibility diff for neptune-core |
@@ -83,6 +87,6 @@ The sync algorithm in `light-core/src/sync.rs` and the claim construction in `li
 
 1. Commit this project to your private GitHub repository, including `.github/workflows/build.yml`.
 2. Open **Actions → build** and run the workflow if it did not start on push.
-3. After all checks and the WASM build pass, download **neptune-light-extension** and load it unpacked in Chrome.
+3. After all checks and the WASM build pass, download **escanour-light** or **escanour-node** and load it unpacked in Chrome.
 
-The GitHub workflow runs JavaScript syntax checks and regression tests, compilation and builds. It skips the light-core Rust unit-test step; those test sources remain available for local runs.
+The GitHub workflow runs JavaScript syntax checks and regression tests, compilation and builds. It runs only the succinct unit tests of light-core; the other Rust test sources remain available for local runs.

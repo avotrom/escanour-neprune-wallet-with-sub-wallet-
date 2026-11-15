@@ -54,6 +54,9 @@ export const DEFAULTS = {
   // Chrome notifications: payment sent, received, confirmed, failed.
   notifications: true,
   hideAssets: false,
+  // Succinct node: verify the chain's recursive proof instead of trusting the
+  // sync server for validity. Only in the build that ships the node module.
+  succinct: false,
 };
 
 /** Settings written by versions before 0.3 kept one server pair for the wallet's network. */

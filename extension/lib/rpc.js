@@ -18,7 +18,7 @@ export function id() {
 }
 
 const poolWrites=new Map();
-const READ_METHODS=new Set(['chain_height','wallet_getBlocks','wallet_restoreMembershipProof','utxoindex_blockHeightsByFlags','utxoindex_blockHeightsByAbsoluteIndexSets','node_network']);
+const READ_METHODS=new Set(['chain_height','chain_tip','wallet_getBlocks','wallet_restoreMembershipProof','utxoindex_blockHeightsByFlags','utxoindex_blockHeightsByAbsoluteIndexSets','node_network']);
 function poolConfig(s,network) {
   const srv=s.servers?.[network]||{};
   const nodes=[srv.sync,srv.fallback].filter(Boolean).map(normalizeServer);
@@ -71,16 +71,68 @@ export async function read(url,body,options={}) {
 
 // Shared by the worker and offscreen broadcaster. If Tor is requested but
 // unavailable, remote RPC traffic must not fall back to a direct connection.
+const LOCAL_HOSTS = ['localhost', '127.0.0.1', '[::1]'];
+const TOR_DOWN = 'Tor is not connected. Check Tor settings before retrying.';
 export async function assertRoute(url) {
-  if (typeof chrome === 'undefined' || !chrome.storage?.session) return;
+  if (typeof chrome === 'undefined') return;
   const host = new URL(url).hostname;
-  if (['localhost', '127.0.0.1', '[::1]'].includes(host)) return;
+  if (LOCAL_HOSTS.includes(host)) return;
+  if (!chrome.storage?.session) {
+    // Offscreen documents (and their workers) only get chrome.runtime, so the
+    // Tor state kept in chrome.storage.session is invisible here. Before
+    // 0.24 this branch returned silently, which let the broadcast (the one
+    // request that ties an IP address to a transaction) leave without the
+    // check. The service worker owns the state: ask it, and fail closed.
+    if (!chrome.runtime?.sendMessage) return;
+    let reply = null;
+    try {
+      reply = await chrome.runtime.sendMessage({ target: 'background', cmd: 'assertRoute', args: { url } });
+    } catch {
+      reply = null;
+    }
+    if (reply?.ok) return;
+    if (reply && reply.ok === false) throw new Error(reply.error || TOR_DOWN);
+    // No answer at all: only proceed when Tor was never asked for.
+    if ((await loadSettings()).tor === true) throw new Error(TOR_DOWN);
+    return;
+  }
   const { tor } = await chrome.storage.session.get('tor');
   const required = tor?.required === true || (await loadSettings()).tor === true;
-  if (required && tor?.state !== 'on') throw new Error('Tor is not connected. Check Tor settings before retrying.');
+  if (required && tor?.state !== 'on') throw new Error(TOR_DOWN);
 }
 
-export async function post(url, body, { timeoutMs = 60_000, interruptible = false } = {}) {
+// A node is untrusted input. Without a ceiling a hostile (or broken) server
+// can answer with an endless body and exhaust the browser's memory; a timeout
+// bounds time, not bytes. The body is read as a stream and dropped the moment
+// it passes the limit.
+export const DEFAULT_MAX_RESPONSE_BYTES = 128 * 1024 * 1024;
+export async function readCapped(res, maxBytes = DEFAULT_MAX_RESPONSE_BYTES) {
+  const tooLarge = () => new Error(`NODE_BAD_RESPONSE: the node's answer is larger than ${Math.round(maxBytes / 1048576) || 1} MiB`);
+  const declared = Number(res.headers?.get?.('content-length'));
+  if (Number.isFinite(declared) && declared > maxBytes) throw tooLarge();
+  const reader = res.body?.getReader?.();
+  if (!reader) {
+    const text = await res.text();
+    if (text.length > maxBytes) throw tooLarge();
+    return text;
+  }
+  const decoder = new TextDecoder();
+  let text = '';
+  let seen = 0;
+  for (;;) {
+    const { done, value } = await reader.read();
+    if (done) break;
+    seen += value.byteLength;
+    if (seen > maxBytes) {
+      await reader.cancel().catch(() => {});
+      throw tooLarge();
+    }
+    text += decoder.decode(value, { stream: true });
+  }
+  return text + decoder.decode();
+}
+
+export async function post(url, body, { timeoutMs = 60_000, interruptible = false, maxBytes = DEFAULT_MAX_RESPONSE_BYTES } = {}) {
   await assertRoute(url);
   const ctrl = new AbortController();
   if (interruptible) backgroundRequests.add(ctrl);
@@ -97,7 +149,7 @@ export async function post(url, body, { timeoutMs = 60_000, interruptible = fals
       redirect: 'error',
       cache: 'no-store',
     });
-    const text = await res.text();
+    const text = await readCapped(res, maxBytes);
     if (!res.ok) throw new Error(`HTTP ${res.status}: ${text.slice(0, 300)}`);
     // JSON-RPC errors arrive with HTTP 200; surface them here so callers can
     // match the node's message (e.g. "not confirmable").
