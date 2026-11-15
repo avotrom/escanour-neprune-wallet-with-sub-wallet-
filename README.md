@@ -89,4 +89,4 @@ The sync algorithm in `light-core/src/sync.rs` and the claim construction in `li
 2. Open **Actions → build** and run the workflow if it did not start on push.
 3. After all checks and the WASM build pass, download **escanour-light** or **escanour-node** and load it unpacked in Chrome.
 
-The GitHub workflow runs JavaScript syntax checks and regression tests, compilation and builds. It runs only the succinct unit tests of light-core; the other Rust test sources remain available for local runs.
+The GitHub workflow runs JavaScript syntax checks and regression tests, compilation and builds. It skips the Rust unit tests (they compile Triton VM fully optimised and take over an hour); run them locally with `cargo test -p light-core`.

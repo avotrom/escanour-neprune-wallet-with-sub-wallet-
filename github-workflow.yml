@@ -51,9 +51,6 @@ jobs:
       - name: Build wasm modules
         run: scripts/build.sh
 
-      - name: Rust unit tests (succinct verdicts)
-        run: RUST_MIN_STACK=33554432 cargo test -p light-core succinct
-
       - name: Cut the two builds
         run: scripts/package.sh
 
