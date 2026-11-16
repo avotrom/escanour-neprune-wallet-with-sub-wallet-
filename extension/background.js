@@ -986,17 +986,25 @@ async function syncStep({walletOnly=false}={}) {
         }
         if (yieldNow()) {
           more = true;
-        } else if (s.localArchive) {
-          try {
-            more = (await archiveStep({ key, wallet, server, net: s.network, snap })) || more;
-          } catch (e) {
-            await setArchiveStatus({ state: 'error', error: String(e.message || e).slice(0, 200) });
+        } else {
+          // Full node mode: the archive first. The spend index then fills
+          // whatever the archive did not record (all of it below an imported
+          // snapshot); for blocks the archive applied it is already complete.
+          let archiveMore = false;
+          if (s.localArchive) {
+            try {
+              archiveMore = await archiveStep({ key, wallet, server, net: s.network, snap });
+              more = archiveMore || more;
+            } catch (e) {
+              await setArchiveStatus({ state: 'error', error: String(e.message || e).slice(0, 200) });
+            }
           }
-        } else if (s.exactPrivacy !== false) {
-          try {
-            more = (await fillSpendIndex(server, s.network, snap.height)) || more;
-          } catch {
-            // Retried on the next run.
+          if (!archiveMore && !yieldNow()) {
+            try {
+              more = (await fillSpendIndex(server, s.network, snap.height)) || more;
+            } catch {
+              // Retried on the next run.
+            }
           }
         }
         if (more) scheduleFollowUp();
@@ -1607,7 +1615,7 @@ async function startSend(req) {
       amount: req.amount,
       fee: req.fee,
       acceptLustration: Boolean(req.acceptLustration),
-      waitForFreshBlock: s.waitForFreshBlock === true,
+      waitForFreshBlock: false, // removed in 0.25: sends start from the current tip
       attempt: 1,
       pinned: null,
       createdAt: Date.now(),
@@ -2545,11 +2553,8 @@ const commands = {
       const refused = Object.keys(clean).filter((k) => !open.has(k));
       if (refused.length) throw new Error('Unlock the wallet to change this setting.');
     }
-    if ('succinct' in clean) {
-      clean.succinct = clean.succinct === true;
-      if (clean.succinct && !succinct.available()) throw new Error('This build has no node module. Install the node build to verify the chain yourself.');
-    }
-    if('waitForFreshBlock' in clean){clean.waitForFreshBlock=clean.waitForFreshBlock===true;clean.sendTimingConfigured=true;}
+    // Full node mode has its own command (archiveSet); removed switches stay put.
+    for (const k of ['localArchive', 'succinct', 'exactPrivacy', 'waitForFreshBlock', 'sendTimingConfigured']) delete clean[k];
     if (clean.privateNotifications === true && (await settingsStore.load()).network === 'main') {
       throw new Error('Private app notifications are experimental and disabled on mainnet.');
     }
@@ -2580,10 +2585,9 @@ const commands = {
     if(clean.servers&&before.tor){rpc.interrupt();await setTorState({state:'connecting',port:Number(clean.torPort||before.torPort)||9150});}
     if(clean.servers)for(const n of Object.keys(patch.servers||{}))await rpc.resetNodeSession(n);
     const saved = await settingsStore.save(clean);
-    if('waitForFreshBlock' in clean&&!saved.waitForFreshBlock)resumeSends().catch(()=>{});
     // Servers or Tor changed: the proxy script must name the right hosts.
     if ('tor' in clean || 'torPort' in clean || clean.servers) await applyTor({ check: 'tor' in clean || 'torPort' in clean || Boolean(clean.servers&&saved.tor) }).catch(() => {});
-    if ('succinct' in clean || clean.servers) {
+    if (clean.servers) {
       await ensureSuccinct().catch(() => {});
       await refreshProven(saved.network, { nudge: false }).catch(() => {});
     }
@@ -2949,13 +2953,83 @@ const commands = {
       await setStatus({ archive: { state: 'building', height: 0, target: null, at: Date.now() }, adoptPending: true });
       syncOnce().catch(() => {});
     }
+    // The other half of Full node mode: the chain proof checker.
+    await ensureSuccinct().catch(() => {});
+    await refreshProven(s.network, { nudge: false }).catch(() => {});
     return { on: Boolean(s.localArchive) };
   },
 
   /** Rebuild every commitment from the stored leaves and chunks. */
+  /**
+   * Replace the archive with a snapshot, so it need not be built from every
+   * block. `url`: download it; `stored`: the popup left the file's bytes in
+   * IndexedDB (`kv/snapIncoming`). The snapshot is checked in full and must
+   * end on a block of the sync server's chain whose mutator set it holds;
+   * the archive then grows from there as usual.
+   */
+  async archiveImport({ url, stored } = {}) {
+    await requireWallet();
+    const s = await settingsStore.load();
+    if (!s.localArchive) throw new Error('Turn Full node mode on first.');
+    const net = s.network;
+    let bytes;
+    if (stored) {
+      bytes = await db.get(db.STORES.kv, 'snapIncoming');
+      await db.del(db.STORES.kv, 'snapIncoming').catch(() => {});
+      if (!bytes) throw new Error('No snapshot file was received.');
+      bytes = new Uint8Array(bytes);
+    } else {
+      const u = new URL(String(url || ''));
+      if (u.protocol !== 'https:' && !['localhost', '127.0.0.1'].includes(u.hostname)) throw new Error('Use an https:// address.');
+      await setArchiveStatus({ state: 'importing', error: null, note: null, downloaded: 0 });
+      let last = 0;
+      bytes = await keepAlive(() => rpc.download(u.href, {
+        onProgress: (n, total) => {
+          if (n - last < 2 ** 20) return;
+          last = n;
+          setArchiveStatus({ state: 'importing', downloaded: n, total }).catch(() => {});
+        },
+      }));
+    }
+    await wasm();
+    const server = settingsStore.serversFor(s).sync;
+    return keepAlive(() => exclusiveNow(async () => {
+      let a;
+      try {
+        a = light.Archive.fromSnapshot(bytes, net);
+        bytes = null;
+        const current = archiveCache?.net === net ? archiveCache.a.height() : (await status()).archive?.height || 0;
+        if (a.height() <= current) throw new Error(`Your archive is already at block ${current}; this snapshot ends at block ${a.height()}.`);
+        a.verifyTipBlock(await rpc.read(server, light.getBlocksRequest(rpc.id(), a.height(), a.height()), { timeoutMs: BLOCKS_TIMEOUT_MS }));
+      } catch (e) {
+        a?.free?.();
+        await setArchiveStatus({ state: 'error', error: `Snapshot refused: ${String(e.message || e).slice(0, 200)}` });
+        throw e;
+      }
+      await deleteArchive(net);
+      await saveArchive(net, a);
+      archiveCache = { net, a };
+      await setArchiveStatus({ state: 'building', height: a.height(), leaves: a.numLeaves(), size: a.sizeBytes(), error: null, note: 'snapshot', downloaded: 0, importedAt: Date.now(), importedHeight: a.height() });
+      await setStatus({ adoptPending: true });
+      syncOnce().catch(() => {});
+      return { height: a.height(), leaves: a.numLeaves(), size: a.sizeBytes() };
+    }));
+  },
+
+  /** The archive as one snapshot file, for another device. */
+  async archiveExport() {
+    const s = await settingsStore.load();
+    if (!s.localArchive) throw new Error('Turn Full node mode on first.');
+    return keepAlive(() => exclusiveNow(async () => {
+      const a = await loadArchive(s.network);
+      await db.put(db.STORES.kv, 'snapOutgoing', a.toSnapshot());
+      return { height: a.height(), network: s.network };
+    }));
+  },
+
   async archiveCheck() {
     const s = await settingsStore.load();
-    if (!s.localArchive) throw new Error('The local archive is off');
+    if (!s.localArchive) throw new Error('Full node mode is off');
     return keepAlive(() =>
       exclusiveNow(async () => {
         const a = await loadArchive(s.network);

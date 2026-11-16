@@ -9,7 +9,7 @@ import { contactAddresses, visibleWatch, scanProgress, singleFlight } from './li
 import { readAddressFromFile, readAddressFromImageBlob, cleanAddress } from './lib/qrimport.js';
 
 const $ = (id) => document.getElementById(id);
-const SCREENS = ['welcome', 'ready', 'setup', 'unlock', 'home', 'address-history', 'modes', 'mode-standard', 'mode-refresh', 'private-payments', 'private-backup', 'private-recovery', 'private-history', 'settings', 'contacts', 'phrase', 'servers', 'advanced', 'about', 'pcheck', 'tor', 'watch', 'claim', 'payment-codes', 'recovery-options', 'archive'];
+const SCREENS = ['welcome', 'ready', 'setup', 'unlock', 'home', 'address-history', 'modes', 'mode-standard', 'mode-refresh', 'private-payments', 'private-backup', 'private-recovery', 'private-history', 'settings', 'contacts', 'phrase', 'servers', 'advanced', 'about', 'tor', 'watch', 'claim', 'payment-codes', 'recovery-options', 'archive'];
 const PARAMS = new URLSearchParams(location.search);
 const IN_TAB = PARAMS.get('view') === 'tab';
 // The wallet's usual home: Chrome's side panel, full height next to the page.
@@ -1952,7 +1952,6 @@ async function openSettings() {
   $('versionLine').textContent = t('set.version', { v: VERSION });
   renderTor(app.tor);
   showScreen('settings');
-  renderPcSummary();
   renderMoreNav();
 }
 
@@ -2572,7 +2571,10 @@ $('claimPremine').onclick=async()=>{
 async function openArchive() {
   showScreen('archive');
   $('archChecked').textContent = '';
+  $('snapMsg').textContent = '';
+  $('succinctMsg').textContent = '';
   err('archErr');
+  refreshSuccinct().catch(() => {});
   await renderArchive();
 }
 
@@ -2589,6 +2591,11 @@ async function renderArchive(given) {
   $('setArchive').checked = a.on;
   const hero = $('archHero');
   const state = !a.on ? 'off' : a.state === 'error' ? 'error' : a.state === 'ready' ? 'ready' : 'building';
+  // A snapshot saves downloading every block: offered while the archive is
+  // still far from the tip, and to replace a broken one.
+  $('snapBox').hidden = !a.on || state === 'ready';
+  $('snapExport').hidden = state !== 'ready';
+  if (a.state === 'importing') $('snapMsg').textContent = t('snap.downloading', { n: fmtBytes(a.downloaded || 0), t: a.total ? fmtBytes(a.total) : '?' });
   hero.dataset.state = state;
   $('archArc').style.strokeDashoffset = String(100 - (state === 'ready' ? 100 : state === 'building' ? archPct(a) : 0));
   if (state === 'off') {
@@ -2655,10 +2662,73 @@ $('setArchive').onchange = async () => {
   const on = $('setArchive').checked;
   try {
     await call('archiveSet', { on });
+    const next = await call('state').catch(() => null);
+    if (next?.settings) app.settings = next.settings;
   } catch (e) {
     err('archErr', e);
   }
+  refreshSuccinct().catch(() => {});
   await renderArchive();
+};
+
+// ---- full node: archive snapshot ----
+async function importSnapshot(args) {
+  err('archErr');
+  for (const b of ['snapFetch', 'snapPick']) busy($(b), true);
+  $('snapMsg').textContent = t('snap.checking');
+  try {
+    const r = await call('archiveImport', args);
+    $('snapMsg').textContent = t('snap.done', { h: fmtNum(r.height), size: fmtBytes(r.size) });
+  } catch (e) {
+    $('snapMsg').textContent = '';
+    err('archErr', e);
+  } finally {
+    for (const b of ['snapFetch', 'snapPick']) busy($(b), false);
+    renderArchive().catch(() => {});
+  }
+}
+$('snapFetch').onclick = async () => {
+  const url = $('snapUrl').value.trim();
+  let u;
+  try {
+    u = new URL(url);
+  } catch {
+    return err('archErr', new Error(t('snap.badUrl')));
+  }
+  // Downloading from a new host needs Chrome's permission (asked here, on the click).
+  const origin = `${u.protocol}//${u.hostname}/*`;
+  const ok = await chrome.permissions.request({ origins: [origin] }).catch(() => false);
+  if (!ok) return err('archErr', new Error(t('snap.noPermission')));
+  importSnapshot({ url });
+};
+$('snapPick').onclick = () => $('snapFile').click();
+$('snapFile').onchange = async () => {
+  const f = $('snapFile').files?.[0];
+  $('snapFile').value = '';
+  if (!f) return;
+  // Too large for a message: handed over through the extension's own storage.
+  const db = await import('./lib/db.js');
+  await db.put(db.STORES.kv, 'snapIncoming', new Uint8Array(await f.arrayBuffer()));
+  importSnapshot({ stored: true });
+};
+$('snapExport').onclick = async () => {
+  busy($('snapExport'), true);
+  try {
+    const r = await call('archiveExport');
+    const db = await import('./lib/db.js');
+    const bytes = await db.get(db.STORES.kv, 'snapOutgoing');
+    await db.del(db.STORES.kv, 'snapOutgoing').catch(() => {});
+    const url = URL.createObjectURL(new Blob([bytes], { type: 'application/octet-stream' }));
+    const link = document.createElement('a');
+    link.href = url;
+    link.download = `neptune-${r.network}-archive-${r.height}.escarch`;
+    link.click();
+    setTimeout(() => URL.revokeObjectURL(url), 60_000);
+  } catch (e) {
+    err('archErr', e);
+  } finally {
+    busy($('snapExport'), false);
+  }
 };
 
 $('archCheck').onclick = async () => {
@@ -2750,7 +2820,6 @@ $('setTor').onchange = async () => {
   } catch {
     /* the status message will follow */
   }
-  renderPcSummary();
 };
 
 $('setTorPort').onchange = async () => {
@@ -2781,164 +2850,6 @@ $('copyTorCmd').onclick = async () => {
   await navigator.clipboard.writeText($('torCmd').textContent);
   toast(t('node.copied'));
 };
-
-// -------------------------------------------------------- privacy check ---
-
-/** Every privacy setting and fact the wallet knows, each with a light:
- *  ok (protected), info (worth knowing), warn (to improve), bad (broken). */
-function privacyChecks() {
-  const s = app?.settings || {};
-  const srv = s.servers?.[s.network] || {};
-  const host = (u) => {
-    try {
-      return new URL(u).hostname;
-    } catch {
-      return '';
-    }
-  };
-  const local = (u) => ['localhost', '127.0.0.1'].includes(host(u));
-  const ownNode = local(srv.sync) && local(srv.broadcast);
-  const tor = s.tor ? (torInfo?.state || 'off') : 'off';
-  const torOk = tor === 'on';
-  const items = [];
-  const add = (state, title, detail, go) => items.push({ state, title, detail, go });
-
-  // Who sees your IP
-  if (ownNode) add('ok', t('pc.ipTitle'), t('pc.ipNode'), 'servers');
-  else if (s.tor && tor !== 'on') add('bad', t('pc.ipTitle'), t('pc.ipTorDown'), 'tor');
-  else if (torOk) add('ok', t('pc.ipTitle'), t('pc.ipTor'), 'tor');
-  else add('warn', t('pc.ipTitle'), t('pc.ipDirect'), 'tor');
-
-  // One server for both syncing and sending
-  if (ownNode) add('ok', t('pc.srvTitle'), t('pc.srvNode'), 'servers');
-  else if (host(srv.sync) && host(srv.sync) === host(srv.broadcast)) add('warn', t('pc.srvTitle'), t('pc.srvSame'), 'servers');
-  else add('ok', t('pc.srvTitle'), t('pc.srvSplit'), 'servers');
-
-  // Price lookups
-  const prices = s.priceLookup !== false && s.currency !== 'off';
-  if (!prices) add('ok', t('pc.priceTitle'), t('pc.priceOff'), 'prices');
-  else if (torOk) add('ok', t('pc.priceTitle'), t('pc.priceTor'), 'prices');
-  else add('warn', t('pc.priceTitle'), t('pc.priceOn'), 'prices');
-
-  // Coins: anonymity sets, exact count, amounts, restore
-  const p = privacy;
-  if (p) {
-    const coins = p.coins.filter((c) => c.spendable);
-    if (!coins.length) add('info', t('pc.coinsTitle'), t('pc.coinsNone'), 'privacy');
-    else {
-      const { level, min } = privacyLevel(p);
-      const exactAll = coins.every((c) => c.exact_possible != null);
-      add(level === 'fair' ? 'warn' : 'ok', t('pc.coinsTitle'),
-        t(exactAll ? 'pc.coinsExact' : 'pc.coinsUpTo', { n: fmtNum(min), l: t(`pv.${level}`) }), 'privacy');
-      const reveal = coins.filter((c) => c.reveals_amount).length;
-      add(reveal ? 'warn' : 'ok', t('pc.amountTitle'), reveal ? t('pc.amountSome', { n: reveal }) : t('pc.amountNone'), 'privacy');
-    }
-    const ex = p.exact || {};
-    if (ex.computed) add('ok', t('pc.exactTitle'), t('pc.exactOn', { s: fmtNum(ex.spends_considered) }), 'advanced');
-    else if (ex.error) add('warn', t('pc.exactTitle'), t('pc.exactErr'), 'advanced');
-    else if (s.exactPrivacy === false) add('info', t('pc.exactTitle'), t('pc.exactOff'), 'advanced');
-    else {
-      const ix = p.spendIndex;
-      add('info', t('pc.exactTitle'), t('pc.exactBuild', { p: ix && ix.total ? Math.floor((100 * ix.have) / ix.total) : 0 }), 'advanced');
-    }
-    if (p.fastRestored) {
-      add(p.fastRestored.own ? 'ok' : 'warn', t('pc.restoreTitle'),
-        p.fastRestored.own ? t('pc.restoreOwn') : t('pc.restoreThird', { h: p.fastRestored.host || '?' }), 'privacy');
-    }
-  }
-
-  // Address kind for payment notices
-  if ((s.addressKind || 'generation') === 'generation') add('ok', t('pc.addrTitle'), t('pc.addrGen'), 'prefs');
-  else add('info', t('pc.addrTitle'), t('pc.addrEc'), 'prefs');
-
-  // Notifications show amounts on screen
-  add(s.notifications !== false ? 'info' : 'ok', t('pc.notifTitle'), s.notifications !== false ? t('pc.notifOn') : t('pc.notifOff'), 'prefs');
-
-  // Auto-lock
-  const lock = Number(s.autoLockMinutes) || 15;
-  add(lock <= 15 ? 'ok' : lock <= 60 ? 'info' : 'warn', t('pc.lockTitle'), t('pc.lock', { m: lock }), 'lock');
-
-  // Keys and proofs never leave the device
-  add('ok', t('pc.localTitle'), t('pc.local'), null);
-  return items;
-}
-
-const PC_RANK = { bad: 3, warn: 2, info: 1, ok: 0 };
-
-function pcOverall(items) {
-  const worst = items.reduce((w, i) => (PC_RANK[i.state] > PC_RANK[w] ? i.state : w), 'ok');
-  const toImprove = items.filter((i) => i.state === 'warn' || i.state === 'bad').length;
-  return { worst, toImprove };
-}
-
-async function ensurePrivacy() {
-  if (privacy || !app?.unlocked) return;
-  try {
-    privacy = await call('privacy');
-  } catch {
-    privacy = null;
-  }
-}
-
-async function renderPcSummary() {
-  await ensurePrivacy();
-  const items = privacyChecks();
-  const { worst, toImprove } = pcOverall(items);
-  $('pcLight').dataset.s = worst;
-  $('pcSummary').textContent = toImprove ? t('pc.summaryImprove', { n: toImprove }) : t('pc.summaryGood');
-}
-
-async function openPcheck() {
-  await ensurePrivacy();
-  const items = privacyChecks();
-  const { worst, toImprove } = pcOverall(items);
-  $('pcHero').dataset.s = worst;
-  $('pcHeadline').textContent = toImprove ? t('pc.headImprove', { n: toImprove }) : t('pc.headGood');
-  $('pcSub').textContent = t('pc.sub', { n: items.length });
-  const list = $('pcList');
-  list.textContent = '';
-  for (const it of [...items].sort((a, b) => PC_RANK[b.state] - PC_RANK[a.state])) {
-    const li = document.createElement('li');
-    const light = document.createElement('span');
-    light.className = 'light';
-    light.dataset.s = it.state;
-    const body = document.createElement('div');
-    const b = document.createElement('b');
-    b.textContent = it.title;
-    const d = document.createElement('span');
-    d.className = 'd';
-    d.textContent = it.detail;
-    body.append(b, d);
-    li.append(light, body);
-    if (it.go) {
-      const go = document.createElement('button');
-      go.textContent = t('pc.open');
-      go.onclick = () => pcGo(it.go);
-      li.append(go);
-    } else {
-      li.append(document.createElement('span'));
-    }
-    list.append(li);
-  }
-  showScreen('pcheck');
-}
-
-function pcGo(where) {
-  if (where === 'servers') return openServers(app.settings.network);
-  if (where === 'advanced') return openSub('advanced');
-  if (where === 'privacy') {
-    boot().then(() => openPrivacy());
-    return;
-  }
-  // Settings rows: open Settings and bring the row into view.
-  if (where === 'tor') return openTor('settings');
-  openSettings().then(() => {
-    const id = { prices: 'setPrices', prefs: 'setKind', lock: 'setLock' }[where];
-    const el = id && $(id);
-    el?.closest('.row')?.scrollIntoView({ block: 'center' });
-    el?.closest('.row')?.classList.add('just-on');
-  });
-}
 
 async function savePref(patch) {
   try {
@@ -3019,19 +2930,40 @@ function fillServers() {
   $('nodeMode').checked = local;
   if (local) $('nodeUrl').value = srv.sync;
   $('nodeChecks').hidden = true;
-  refreshSuccinct().catch(() => {});
+  renderSource();
 }
 
-// ---- succinct node (Servers) ----
+/** Public server or own node: one choice, one panel. */
+function renderSource(source = $('nodeMode').checked ? 'node' : 'public') {
+  for (const b of document.querySelectorAll('#srvSource .seg-btn')) b.classList.toggle('on', b.dataset.source === source);
+  $('srvNodePanel').hidden = source !== 'node';
+  $('srvPublicPanel').hidden = source !== 'public';
+}
+for (const b of document.querySelectorAll('#srvSource .seg-btn')) {
+  b.onclick = () => {
+    const toNode = b.dataset.source === 'node';
+    $('setMsg').textContent = '';
+    // Showing the node panel changes nothing yet: "Connect" does.
+    if (toNode) return renderSource('node');
+    if ($('nodeMode').checked) {
+      $('nodeMode').checked = false;
+      $('nodeMode').dispatchEvent(new Event('change'));
+    }
+    renderSource('public');
+  };
+}
+$('nodeConnect').onclick = () => {
+  $('nodeMode').checked = true;
+  $('nodeMode').dispatchEvent(new Event('change'));
+};
+
+// ---- full node: chain proof ----
 let succinctView = null;
 async function refreshSuccinct() {
-  const network = serversNet;
+  const network = app.settings.network;
   const v = await call('succinctStatus', { network });
-  if (serversNet !== network) return;
   succinctView = v;
-  $('succinctCard').hidden = !v.available;
-  if (!v.available) return;
-  $('succinctOn').checked = v.enabled;
+  $('fnChainTools').hidden = !v.enabled;
   $('succinctKeep').checked = v.keepRunning;
   const builtin = v.anchor.source === 'builtin';
   if (document.activeElement !== $('succinctAnchor')) $('succinctAnchor').value = v.anchor.hash || '';
@@ -3040,15 +2972,17 @@ async function refreshSuccinct() {
   $('succinctAnchorHint').textContent = t(`suc.anchor.${v.anchor.source}`);
   const list = $('succinctFacts');
   list.textContent = '';
-  list.hidden = !v.enabled;
-  if (!v.enabled) return;
   const add = (state, text) => {
     const li = document.createElement('li');
     li.dataset.state = state;
     li.textContent = text;
     list.append(li);
   };
-  const p = network === app.settings.network ? app.status?.proven || v.proven : v.proven;
+  if (!v.enabled) {
+    add('off', t('fn.chainOff'));
+    return;
+  }
+  const p = app.status?.proven || v.proven;
   const short = (h) => (h ? `${h.slice(0, 10)}…${h.slice(-6)}` : '');
   if (!v.targets.length) add('bad', t('suc.needServer'));
   else if (p.state === 'waiting') add('wait', t('suc.waiting'));
@@ -3065,18 +2999,6 @@ async function refreshSuccinct() {
   }
   if (p.work) add('info', t('suc.work', { w: p.work }));
 }
-$('succinctOn').onchange = async () => {
-  const on = $('succinctOn').checked;
-  $('succinctMsg').textContent = '';
-  try {
-    app.settings = await call('saveSettings', { succinct: on });
-    $('succinctMsg').textContent = on ? t('suc.on') : t('suc.off');
-  } catch (e) {
-    $('succinctOn').checked = !on;
-    $('succinctMsg').textContent = String(e.message || e);
-  }
-  refreshSuccinct().catch(() => {});
-};
 $('succinctVerify').onclick = async () => {
   const b = $('succinctVerify');
   busy(b, true);
@@ -3095,7 +3017,7 @@ $('succinctAnchorSave').onclick = async () => {
   const hash = $('succinctAnchor').value.trim();
   if (succinctView?.anchor.hash && hash !== succinctView.anchor.hash && !confirm(t('suc.anchorConfirm'))) return;
   try {
-    await call('succinctAnchor', { network: serversNet, hash });
+    await call('succinctAnchor', { network: app.settings.network, hash });
     $('succinctMsg').textContent = hash ? t('suc.anchorSaved') : t('suc.anchorCleared');
   } catch (e) {
     $('succinctMsg').textContent = String(e.message || e);
@@ -3122,7 +3044,6 @@ for (const b of document.querySelectorAll('#srvNet .seg-btn')) {
 function openSub(name) {
   const s = app.settings;
   if (name === 'servers') return openServers(s.network);
-  if (name === 'pcheck') return openPcheck();
   if (name === 'tor') return openTor('settings');
   if (name === 'watch') return openWatch(currentScreen === 'settings' ? 'settings' : 'home');
   if (name === 'claim') return openClaim();
@@ -3133,9 +3054,6 @@ function openSub(name) {
   if (name === 'advanced') {
     $('setWorkers').value = String(s.workers);
     $('setLowMem').value = s.lowMemoryProving || 'auto';
-    $('setExact').checked = s.exactPrivacy !== false;
-    $('setWaitBlock').checked=s.waitForFreshBlock===true;
-    renderProofReport();
     $('advNetwork').textContent = netLabel(s.network);
     $('advHeight').textContent = app.status?.height != null ? fmtNum(app.status.height) : '—';
     $('advSince').textContent = app.status?.startHeight != null ? fmtNum(app.status.startHeight) : s.birthday ? fmtNum(s.birthday) : '—';
@@ -3152,47 +3070,10 @@ function openSub(name) {
   showScreen(name);
 }
 
-$('setWaitBlock').onchange=()=>savePref({waitForFreshBlock:$('setWaitBlock').checked,sendTimingConfigured:true});
 $('setWorkers').onchange = () => savePref({ workers: $('setWorkers').value });
 $('setLowMem').onchange = () => savePref({ lowMemoryProving: $('setLowMem').value });
-$('setExact').onchange = () => savePref({ exactPrivacy: $('setExact').checked });
 
 const fmtBytes = (n) => (n >= 2 ** 30 ? `${(n / 2 ** 30).toFixed(1)} GB` : n >= 2 ** 20 ? `${Math.round(n / 2 ** 20)} MB` : `${Math.round(n / 2 ** 10)} KB`);
-
-/** What the last payment's proofs cost on this device. */
-async function renderProofReport() {
-  let r = null;
-  try {
-    r = await call('proofReport');
-  } catch {
-    r = null;
-  }
-  const list = $('advProofList');
-  list.textContent = '';
-  if (!r || !r.jobs?.length) {
-    $('advProofs').textContent = t('adv.noProofs');
-    list.hidden = true;
-    return;
-  }
-  const peak = Math.max(...r.jobs.map((j) => j.memory_bytes || 0));
-  $('advProofs').textContent = t('adv.proofsSummary', {
-    d: fmtDate(r.at), s: Math.round(r.totalSeconds), w: r.workers, m: peak ? fmtBytes(peak) : '?',
-  });
-  for (const j of r.jobs) {
-    const li = document.createElement('li');
-    const name = document.createElement('b');
-    name.textContent = j.label;
-    const detail = document.createElement('span');
-    detail.textContent = t('adv.proofLine', {
-      s: j.seconds.toFixed(1), h: `2^${Math.round(Math.log2(j.padded_height))}`,
-      c: fmtBytes(j.lde_cache_bytes), k: j.low_memory ? t('adv.notKept') : t('adv.kept'),
-      p: fmtBytes(j.proof_bytes), m: j.memory_bytes ? fmtBytes(j.memory_bytes) : '?',
-    });
-    li.append(name, detail);
-    list.append(li);
-  }
-  list.hidden = false;
-}
 
 $('copyCmd').onclick = async () => {
   await navigator.clipboard.writeText($('nodeCmd').textContent + (serversNet === 'testnet' ? ' --network testnet' : ''));
@@ -3263,6 +3144,7 @@ $('nodeMode').onchange = async () => {
     $('nodeMode').checked = !on;
     $('setMsg').textContent = String(e.message || e);
   }
+  renderSource(on || $('nodeMode').checked ? 'node' : 'public');
 };
 
 $('setSave').onclick = async () => {
@@ -3361,13 +3243,11 @@ chrome.runtime.onMessage.addListener((msg) => {
   if (msg.type === 'tor') {
     if (app) app.tor = msg.tor;
     renderTor(msg.tor);
-    if (!$('v-settings').hidden) renderPcSummary();
-    if (!$('v-pcheck').hidden) openPcheck();
   }
   if (msg.type === 'status') {
     if (msg.network && app?.settings && msg.network !== app.settings.network) return;
     if (app) {app.status=msg.status;if(msg.recoveries)app.recoveries=msg.recoveries;}
-    if(currentScreen==='servers'&&serversNet===app.settings.network)refreshSuccinct().catch(()=>{});
+    if(currentScreen==='archive')refreshSuccinct().catch(()=>{});
     if(currentScreen==='servers'&&serversNet===app.settings.network&&msg.status.node?.url)$('nodeSessionStatus').textContent=t('srv.poolUsing',{node:msg.status.node.label,host:new URL(msg.status.node.url).host});
     if (currentScreen==='claim') renderAssetRecovery();
     if (!$('v-home').hidden) renderHomeWatch(homeWatchCache);

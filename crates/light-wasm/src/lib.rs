@@ -1322,6 +1322,33 @@ impl ArchiveJs {
         })
     }
 
+    /// Read and check a snapshot file (see `light_core::archive`). Still to
+    /// do afterwards: `verifyTipBlock` with the block at `height()`.
+    #[wasm_bindgen(js_name = fromSnapshot)]
+    pub fn from_snapshot(bytes: &[u8], network: &str) -> Result<ArchiveJs, JsError> {
+        let network = parse_network(network).map_err(js_err)?;
+        Ok(ArchiveJs {
+            inner: archive::Archive::from_snapshot(bytes, network).map_err(js_err)?,
+        })
+    }
+
+    /// The whole archive as one snapshot file.
+    #[wasm_bindgen(js_name = toSnapshot)]
+    pub fn to_snapshot(&self) -> Result<Vec<u8>, JsError> {
+        self.inner.to_snapshot().map_err(js_err)
+    }
+
+    /// `blocks_body`: a `wallet_getBlocks` answer holding the block at the
+    /// archive's height. Throws unless it is the archive's tip.
+    #[wasm_bindgen(js_name = verifyTipBlock)]
+    pub fn verify_tip_block(&self, blocks_body: &str) -> Result<(), JsError> {
+        let block = rpc::parse_blocks(blocks_body)
+            .map_err(js_err)?
+            .pop()
+            .ok_or_else(|| JsError::new("the server sent no block"))?;
+        self.inner.verify_tip_block(block).map_err(js_err)
+    }
+
     /// Start loading a stored archive; then `loadLeafPage` / `loadChunkPage`
     /// for every page in order, then `finishLoad`.
     #[wasm_bindgen(js_name = fromMeta)]

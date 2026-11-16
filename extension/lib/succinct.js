@@ -6,8 +6,6 @@
 // invent a chain. This file holds the decisions around that verdict, so the
 // service worker, the offscreen runner and the tests all use the same ones.
 
-import { FLAVOR } from './flavor.js';
-
 /** Hash (hex) of the last block below the activation height, per network:
  *  the one thing a succinct client cannot prove and must know.
  *
@@ -25,11 +23,12 @@ export const KNOWN_ANCHORS = Object.freeze({
 export const DIGEST_HEX = /^[0-9a-f]{80}$/;
 
 export function available() {
-  return FLAVOR === 'node';
+  return true;
 }
 
+/** Proof checking is one half of Full node mode (the other is the archive). */
 export function enabled(settings) {
-  return available() && settings?.succinct === true;
+  return settings?.localArchive === true;
 }
 
 /** The nodes whose tips are verified: Node A, then Node B when configured.

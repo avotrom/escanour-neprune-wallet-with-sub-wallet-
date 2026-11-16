@@ -2,10 +2,9 @@
 # (It must live at .github/workflows/; GitHub creates that folder for you.)
 #
 # Builds the extension on GitHub's servers: nothing to install locally.
-# Result: two downloads on the workflow run page:
-#   escanour-light  the wallet without a node
-#   escanour-node   the wallet with the succinct node
-# A pushed tag (v*) also attaches both as zip files to a GitHub release.
+# Result: an "escanour-wallet" download on the workflow run page, plus the
+# "neptune-light" command-line tool for macOS (it makes archive snapshots from
+# your own node). A pushed tag (v*) also attaches both to a GitHub release.
 # If the build fails, the "Check" step's log shows the compiler errors.
 name: build
 
@@ -51,28 +50,22 @@ jobs:
       - name: Build wasm modules
         run: scripts/build.sh
 
-      - name: Cut the two builds
-        run: scripts/package.sh
+      - name: Package the extension
+        run: cd extension && zip -qr ../escanour-wallet.zip .
 
-      - name: Upload the light build (no node)
+      - name: Upload the extension
         uses: actions/upload-artifact@v4
         with:
-          name: escanour-light
-          path: dist/escanour-light/
+          name: escanour-wallet
+          path: extension/
 
-      - name: Upload the node build (succinct node)
-        uses: actions/upload-artifact@v4
-        with:
-          name: escanour-node
-          path: dist/escanour-node/
-
-      - name: Attach both builds to the release
+      - name: Attach the extension to the release
         if: startsWith(github.ref, 'refs/tags/v')
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          gh release view "$GITHUB_REF_NAME" >/dev/null 2>&1 || gh release create "$GITHUB_REF_NAME" --title "$GITHUB_REF_NAME" --notes-file "RELEASE-${GITHUB_REF_NAME#v}.md" --prerelease
-          gh release upload "$GITHUB_REF_NAME" dist/escanour-light.zip dist/escanour-node.zip --clobber
+          gh release view "$GITHUB_REF_NAME" >/dev/null 2>&1 || gh release create "$GITHUB_REF_NAME" --title "$GITHUB_REF_NAME" --notes-file "RELEASE-${GITHUB_REF_NAME#v}.md" --prerelease || true
+          gh release upload "$GITHUB_REF_NAME" escanour-wallet.zip --clobber
 
       - name: Upload the check log
         if: always()
@@ -81,3 +74,30 @@ jobs:
           name: check-log
           path: check.log
           if-no-files-found: ignore
+
+  # The command-line tool, for the Mac that runs your own node:
+  #   neptune-light --server http://127.0.0.1:9797 archive-export
+  cli-macos:
+    runs-on: macos-latest
+    timeout-minutes: 90
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+      - name: Vendor neptune-core and apply the wasm patch
+        run: chmod +x scripts/*.sh && scripts/vendor-neptune.sh
+      - name: Build
+        run: RUST_MIN_STACK=33554432 cargo build --release -p light-cli
+      - name: Package
+        run: cd target/release && zip -q ../../neptune-light-macos.zip neptune-light
+      - uses: actions/upload-artifact@v4
+        with:
+          name: neptune-light-macos
+          path: target/release/neptune-light
+      - name: Attach to the release
+        if: startsWith(github.ref, 'refs/tags/v')
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release view "$GITHUB_REF_NAME" >/dev/null 2>&1 || gh release create "$GITHUB_REF_NAME" --title "$GITHUB_REF_NAME" --notes-file "RELEASE-${GITHUB_REF_NAME#v}.md" --prerelease || true
+          gh release upload "$GITHUB_REF_NAME" neptune-light-macos.zip --clobber

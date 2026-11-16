@@ -20,17 +20,16 @@ export const DEFAULTS = {
   servers: DEFAULT_SERVERS,
   workers: 'auto',
   autoLockMinutes: 15,
-  // Optional timing optimization; normal sends start from the current tip.
-  waitForFreshBlock: false,
-  sendTimingConfigured: false,
   lowMemoryProving: 'auto', // 'auto' | 'on' | 'off'
   // Route the wallet's servers and price lookups through Tor on this computer.
   tor: false,
   torPort: 9150, // Tor Browser; the tor service uses 9050
   // Keep every block's spends (public data) for exact anonymity counts.
+  // Always on since 0.25 (the switch was removed).
   exactPrivacy: true,
-  // Keep the whole archival mutator set (tens of MB) on this device, so
-  // membership proofs and spend checks never need a server.
+  // Full node mode: keep the whole archival mutator set (tens of MB) on this
+  // device and verify the chain's recursive proof (Neptune v0.20.1+), so
+  // neither membership proofs nor chain validity depend on a server.
   localArchive: false,
   birthday: null,
   // Receiving address kind shown first: 'generation' (post-quantum, long) or
@@ -54,15 +53,18 @@ export const DEFAULTS = {
   // Chrome notifications: payment sent, received, confirmed, failed.
   notifications: true,
   hideAssets: false,
-  // Succinct node: verify the chain's recursive proof instead of trusting the
-  // sync server for validity. Only in the build that ships the node module.
-  succinct: false,
 };
 
 /** Settings written by versions before 0.3 kept one server pair for the wallet's network. */
 function migrate(s) {
   const out = { ...DEFAULTS, ...s };
-  if(s.sendTimingConfigured!==true)out.waitForFreshBlock=false;
+  // 0.25: removed switches. Sends start from the current tip; exact privacy
+  // counts are always kept; 0.24's separate succinct switch is Full node mode.
+  out.waitForFreshBlock = false;
+  out.exactPrivacy = true;
+  out.localArchive = s.localArchive === true || s.succinct === true;
+  delete out.succinct;
+  delete out.sendTimingConfigured;
   out.recoveryModes = {...DEFAULTS.recoveryModes,...s.recoveryModes};
   out.createdWallets={standard:true,refresh:s.createdWallets?.refresh===true || s.autoRefresh===true,encrypted:s.createdWallets?.encrypted===true || s.privateNotifications===true};
   out.servers = {};

@@ -1383,7 +1383,7 @@ dependencies = [
 
 [[package]]
 name = "light-cli"
-version = "0.23.4-alpha.1"
+version = "0.25.0-alpha.1"
 dependencies = [
  "anyhow",
  "light-core",
@@ -1394,7 +1394,7 @@ dependencies = [
 
 [[package]]
 name = "light-core"
-version = "0.23.4-alpha.1"
+version = "0.25.0-alpha.1"
 dependencies = [
  "anyhow",
  "bech32",
@@ -1418,7 +1418,7 @@ dependencies = [
 
 [[package]]
 name = "light-wasm"
-version = "0.23.4-alpha.1"
+version = "0.25.0-alpha.1"
 dependencies = [
  "anyhow",
  "bincode",
@@ -1752,7 +1752,7 @@ dependencies = [
 
 [[package]]
 name = "node-wasm"
-version = "0.23.4-alpha.1"
+version = "0.25.0-alpha.1"
 dependencies = [
  "bincode",
  "console_error_panic_hook",
@@ -2069,7 +2069,7 @@ dependencies = [
 
 [[package]]
 name = "prover-wasm"
-version = "0.23.4-alpha.1"
+version = "0.25.0-alpha.1"
 dependencies = [
  "bincode",
  "console_error_panic_hook",

@@ -167,6 +167,76 @@ fn main() -> Result<()> {
             save(&args, &st)?;
             println!("Wallet starts after block {start}. Run `sync` next.");
         }
+        // Build the archival mutator set from a node (your own neptune-core:
+        // --server http://127.0.0.1:9799) and write it as one snapshot file
+        // the extension can load. Resumes from --from FILE if given.
+        "archive-export" => {
+            let out: PathBuf = arg_after(&args.rest, "--out")
+                .unwrap_or_else(|| format!("neptune-{}-archive.escarch", args.network))
+                .into();
+            let network = parse_network(&args.network)?;
+            let mut a = match arg_after(&args.rest, "--from") {
+                Some(f) => light_core::archive::Archive::from_snapshot(&std::fs::read(&f)?, network)
+                    .with_context(|| format!("reading {f}"))?,
+                None => light_core::archive::Archive::new(network)?,
+            };
+            let target = match arg_after(&args.rest, "--to") {
+                Some(h) => h.parse()?,
+                // Stay a few blocks behind the tip: a snapshot on a block that
+                // is then orphaned is refused by every wallet.
+                None => node.height()?.saturating_sub(10),
+            };
+            let t0 = Instant::now();
+            let start = a.height();
+            while a.height() < target {
+                let from = a.height() + 1;
+                let to = (from + rpc::MAX_BLOCKS_PER_CALL - 1).min(target);
+                let body = node.blocks_body(from, to)?;
+                let blocks = rpc::parse_blocks(&body)?;
+                if blocks.is_empty() {
+                    bail!("server returned no blocks for {from}..={to}");
+                }
+                for b in blocks {
+                    a.apply_block(b)?;
+                }
+                let done = a.height() - start;
+                let rate = done as f64 / t0.elapsed().as_secs_f64().max(0.001);
+                eprint!(
+                    "\rblock {} / {target}  ({:.0} blocks/s, {} coins)   ",
+                    a.height(),
+                    rate,
+                    a.num_leaves()
+                );
+            }
+            eprintln!();
+            a.check()?;
+            let bytes = a.to_snapshot()?;
+            std::fs::write(&out, &bytes)?;
+            println!(
+                "{}: block {} ({}), {:.1} MB",
+                out.display(),
+                a.height(),
+                a.tip_hash().to_hex(),
+                bytes.len() as f64 / 1e6
+            );
+        }
+        // Check a snapshot file, and that it ends on the server's chain.
+        "archive-check" => {
+            let f = args.rest.get(1).context("archive-check FILE")?;
+            let network = parse_network(&args.network)?;
+            let a = light_core::archive::Archive::from_snapshot(&std::fs::read(f)?, network)?;
+            let body = node.blocks_body(a.height(), a.height())?;
+            let block = rpc::parse_blocks(&body)?
+                .pop()
+                .ok_or_else(|| anyhow!("server returned no block at {}", a.height()))?;
+            a.verify_tip_block(block)?;
+            println!(
+                "{f}: valid, block {} on {}'s chain, {} coins",
+                a.height(),
+                args.server,
+                a.num_leaves()
+            );
+        }
         "sync" => {
             let k = keys(&args)?;
             let mut st = load(&args)?;
@@ -365,6 +435,10 @@ fn main() -> Result<()> {
             println!(
                 "  release                            free inputs of transactions that never confirmed"
             );
+            println!(
+                "  archive-export [--out FILE] [--to HEIGHT] [--from FILE]  archival mutator set snapshot"
+            );
+            println!("  archive-check FILE                 verify a snapshot against the server");
         }
     }
     Ok(())
@@ -408,4 +482,9 @@ fn getrandom_fill(buf: &mut [u8]) -> Result<()> {
     std::fs::File::open("/dev/urandom")
         .and_then(|mut f| f.read_exact(buf))
         .context("could not read /dev/urandom")
+}
+
+/// The value after `flag` in the leftover arguments.
+fn arg_after(rest: &[String], flag: &str) -> Option<String> {
+    rest.iter().position(|a| a == flag).and_then(|i| rest.get(i + 1).cloned())
 }

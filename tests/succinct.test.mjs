@@ -10,12 +10,13 @@ const report = (over = {}) => ({
   proven: true, height: 62_600, hash: 'tip', parent_hash: 'parent', activation_height: 62_500,
   activation_parent_hash: A, work_since_activation: '12345', tip_fully_validated: false, ...over,
 });
-const on = { succinct: true, network: 'main', servers: { main: { sync: 'https://a.example/', fallback: 'https://b.example/' } } };
+const on = { localArchive: true, network: 'main', servers: { main: { sync: 'https://a.example/', fallback: 'https://b.example/' } } };
 
-test('the source tree is the node build and node mode is opt-in', () => {
+test('chain proof checking is part of Full node mode and off by default', () => {
   assert.equal(succinct.available(), true);
   assert.equal(succinct.enabled({}), false);
-  assert.equal(succinct.enabled({ succinct: 'yes' }), false);
+  assert.equal(succinct.enabled({ localArchive: 'yes' }), false);
+  assert.equal(succinct.enabled({ succinct: true }), false);
   assert.equal(succinct.enabled(on), true);
 });
 
@@ -60,7 +61,7 @@ test('a known anchor is never re-pinned, and a chain below activation pins nothi
 
 test('status: only a wallet on the proven chain is shown as proven', () => {
   const record = { at: 1, results: [{ url: 'a', ok: true, report: report() }], best: report(), anchor: { hash: A } };
-  assert.equal(succinct.provenState({ succinct: false }, record, 'on-proven-chain').state, 'off');
+  assert.equal(succinct.provenState({ localArchive: false }, record, 'on-proven-chain').state, 'off');
   assert.equal(succinct.provenState(on, null, 'unknown').state, 'waiting');
   assert.equal(succinct.provenState(on, record, 'on-proven-chain').state, 'proven');
   assert.equal(succinct.provenState(on, record, 'not-comparable').state, 'syncing');
@@ -186,10 +187,9 @@ test('the node module holds no keys and the worker never touches the network', (
   assert.match(runner, /maxBytes: TIP_MAX_BYTES/);
 });
 
-test('the light build can drop the node files: they are only ever imported lazily', () => {
+test('the node files load only when Full node mode is on', () => {
   assert.doesNotMatch(background, /import[^\n]*(node-runner|node-worker|pkg\/node)/);
   assert.doesNotMatch(offscreen, /^import .*node-runner/m);
-  assert.match(offscreen, /import\('\.\/node-runner\.js'\)\.catch/);
 });
 
 test('the offscreen page is not closed under a running node, and a locked wallet keeps its routing', () => {

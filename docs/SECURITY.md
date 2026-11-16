@@ -106,6 +106,6 @@ See [BUG-REVIEW-0.23.4.md](BUG-REVIEW-0.23.4.md). Refresh and recovery control w
 
 The optional A/B node pool retries known reads only and never turns a lost transaction-upload reply into an automatic resubmission. Both peers are routed through Tor when enabled; server settings block remote requests before new PAC hosts are published. Own node mode clears fallback. Either operator may see indexed lookup metadata, and privacy reporting includes that possibility. Random selection does not remove trust in the configured validating nodes.
 
-## Succinct node and fixes in 0.24
+## Full node mode and fixes in 0.24–0.25
 
-In the node build with Succinct node on, the "malicious server sends blocks" row above changes: block proofs, proof of work and the choice between two nodes' chains are verified in the browser for everything above the activation block. Light mode and everything below the activation block are unchanged. See [SUCCINCT.md](SUCCINCT.md) for exactly what is and is not covered, and [../RELEASE-0.24.0.md](../RELEASE-0.24.0.md) for the Tor, response-size and locked-settings fixes.
+With Full node mode on, the "malicious server sends blocks" row above changes: block proofs, proof of work and the choice between two nodes' chains are verified in the browser for everything above the activation block. Light mode and everything below the activation block are unchanged. See [FULL-NODE.md](FULL-NODE.md) for exactly what is and is not covered, and [../RELEASE-0.24.0.md](../RELEASE-0.24.0.md) for the Tor, response-size and locked-settings fixes.

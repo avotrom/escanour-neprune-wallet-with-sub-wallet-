@@ -532,14 +532,14 @@ test('premine search is limited to Standard and notification arithmetic keeps su
 });
 
 
-test('fresh-block waiting follows the Advanced preference and defaults off even if a caller forces it on',async()=>{
- for(const enabled of [false,true]) {
-  const h=await harness();h.settings.waitForFreshBlock=enabled;
-  h.rpc.post=async()=>{throw Error('test node');};
-  const id=await h.api.commands.send({to:'nolga1mock',amount:'1',fee:'0.1',waitForFreshBlock:!enabled});
-  assert.equal((await h.api.getSend(id)).waitForFreshBlock,enabled);
- }
- const h=await harness();await h.api.commands.saveSettings({waitForFreshBlock:true});assert.equal(h.settings.sendTimingConfigured,true);
+test('sends never wait for a fresh block, whatever a caller or old setting asks',async()=>{
+ const h=await harness();h.settings.waitForFreshBlock=true;
+ h.rpc.post=async()=>{throw Error('test node');};
+ const id=await h.api.commands.send({to:'nolga1mock',amount:'1',fee:'0.1',waitForFreshBlock:true});
+ assert.equal((await h.api.getSend(id)).waitForFreshBlock,false);
+ const before={exact:h.settings.exactPrivacy,archive:h.settings.localArchive};
+ await h.api.commands.saveSettings({waitForFreshBlock:true,exactPrivacy:!before.exact,succinct:true,localArchive:!before.archive});
+ assert.equal(h.settings.exactPrivacy,before.exact);assert.equal(h.settings.localArchive,before.archive);assert.notEqual(h.settings.succinct,true);
  await assert.rejects(h.api.commands.send({to:'nolga1mock',amount:'1',fee:'0.1',networkContext:'testnet'}),/Network changed/);
 });
 test('sending checks the wallet tip without waiting for archive or spend-index maintenance',async()=>{
@@ -669,13 +669,13 @@ test('a locked wallet keeps its servers, Tor and node settings; only the look ca
  await h.api.commands.saveSettings({servers:{main:{sync:'https://a.invalid/'}}});assert.equal(h.settings.servers.main.sync,'https://a.invalid/');
 });
 
-test('node mode holds the wallet against the proven tip and stops sends when it has diverged',async()=>{
+test('Full node mode holds the wallet against the proven tip and stops sends when it has diverged',async()=>{
  const h=await harness();
  let verdict='on-proven-chain';
  h.light.LightWallet.prototype.provenMatch=()=>verdict;
  h.light.LightWallet.prototype.mutatorSet=()=>new Uint8Array([1,2,3]);
- await h.api.commands.saveSettings({succinct:true});
- assert.equal(h.settings.succinct,true);
+ await h.api.commands.archiveSet({on:true});
+ assert.equal(h.settings.localArchive,true);
  assert.equal((await h.api.status('main')).proven.state,'waiting');
  const best={proven:true,height:101,hash:'tip',parent_hash:'p',activation_height:50,activation_parent_hash:'a'.repeat(80),work_since_activation:'9',tip_fully_validated:false};
  h.maps.kv.set('succinct:main',{network:'main',at:1,results:[{url:'https://example.invalid/',ok:true,report:best}],best,anchor:{hash:'a'.repeat(80),source:'first-use'}});
@@ -688,8 +688,8 @@ test('node mode holds the wallet against the proven tip and stops sends when it 
  assert.equal(st.proven.state,'diverged');assert.match(st.error,/SUCCINCT_DIVERGED/);
  await h.api.setStatus({height:100,tip:100});
  await assert.rejects(h.api.commands.send?.({to:'nolga1',amount:'1',fee:'0',networkContext:'main',walletMode:'standard'})??Promise.reject(new Error('not on the proven chain')),/proven chain/);
- // Turning node mode off returns to light mode: no verdict, no block.
- await h.api.commands.saveSettings({succinct:false});
+ // Turning Full node mode off returns to light mode: no verdict, no block.
+ await h.api.commands.archiveSet({on:false});
  assert.equal((await h.api.status('main')).proven.state,'off');
 });
 

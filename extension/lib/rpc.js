@@ -106,6 +106,37 @@ export async function assertRoute(url) {
 // bounds time, not bytes. The body is read as a stream and dropped the moment
 // it passes the limit.
 export const DEFAULT_MAX_RESPONSE_BYTES = 128 * 1024 * 1024;
+/** Download a file (an archive snapshot) as bytes: same route check (Tor)
+ *  and the same streamed ceiling as node answers. */
+export async function download(url, { maxBytes = 1024 * 1024 * 1024, onProgress } = {}) {
+  await assertRoute(url);
+  const res = await fetch(url, { cache: 'no-store', credentials: 'omit' });
+  if (!res.ok) throw new Error(`HTTP ${res.status} for ${new URL(url).host}`);
+  const declared = Number(res.headers?.get?.('content-length'));
+  if (Number.isFinite(declared) && declared > maxBytes) throw new Error('The file is too large.');
+  const reader = res.body.getReader();
+  const parts = [];
+  let seen = 0;
+  for (;;) {
+    const { done, value } = await reader.read();
+    if (done) break;
+    seen += value.byteLength;
+    if (seen > maxBytes) {
+      await reader.cancel().catch(() => {});
+      throw new Error('The file is too large.');
+    }
+    parts.push(value);
+    onProgress?.(seen, Number.isFinite(declared) ? declared : 0);
+  }
+  const out = new Uint8Array(seen);
+  let at = 0;
+  for (const p of parts) {
+    out.set(p, at);
+    at += p.byteLength;
+  }
+  return out;
+}
+
 export async function readCapped(res, maxBytes = DEFAULT_MAX_RESPONSE_BYTES) {
   const tooLarge = () => new Error(`NODE_BAD_RESPONSE: the node's answer is larger than ${Math.round(maxBytes / 1048576) || 1} MiB`);
   const declared = Number(res.headers?.get?.('content-length'));

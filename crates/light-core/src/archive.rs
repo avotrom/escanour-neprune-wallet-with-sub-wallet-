@@ -551,6 +551,103 @@ impl Archive {
     }
 }
 
+// ----------------------------------------------------------- snapshots --
+//
+// A snapshot is the whole archive in one file, so a new device does not have
+// to download every block to build it. Anyone can produce one (`light-cli
+// archive-export` against a neptune-core node, or the extension from its own
+// archive) and it needs no trust in who made it:
+//
+// 1. the leaves and chunks must rebuild the accumulator stored with them
+//    ([`Archive::check`]);
+// 2. the caller then fetches the block at the snapshot's height from its own
+//    server and checks that its hash is the snapshot's tip and that the
+//    accumulator it commits to is the snapshot's ([`Archive::verify_tip_block`]).
+//
+// After that the archive is exactly what building it block by block would
+// have produced, and it keeps growing from the next block in the usual way.
+//
+// Layout: MAGIC, then three sections, each a u64 little-endian byte count
+// and the bytes: meta record, all leaves (40 bytes each), all chunks
+// (bincode `Vec<Chunk>`).
+
+pub const SNAPSHOT_MAGIC: &[u8; 8] = b"ESCARCH1";
+/// Refuse absurd section sizes before allocating (main net is tens of MB).
+const SNAPSHOT_MAX_SECTION: u64 = 4 << 30;
+
+impl Archive {
+    pub fn to_snapshot(&self) -> Result<Vec<u8>> {
+        ensure!(self.expect.is_none(), "archive is still loading");
+        let meta = self.meta_bytes()?;
+        let mut leaves = Vec::with_capacity(self.leaves.len() * Digest::BYTES);
+        for d in &self.leaves {
+            let b: [u8; Digest::BYTES] = (*d).into();
+            leaves.extend_from_slice(&b);
+        }
+        let chunks = bincode::serialize(&self.chunks)?;
+        let mut out = Vec::with_capacity(8 + 24 + meta.len() + leaves.len() + chunks.len());
+        out.extend_from_slice(SNAPSHOT_MAGIC);
+        for section in [&meta, &leaves, &chunks] {
+            out.extend_from_slice(&(section.len() as u64).to_le_bytes());
+            out.extend_from_slice(section);
+        }
+        Ok(out)
+    }
+
+    /// Read a snapshot and run the full integrity check. Every page is marked
+    /// changed so a caller that stores pages writes them all. The result is
+    /// *not yet* tied to the chain: call [`Self::verify_tip_block`].
+    pub fn from_snapshot(bytes: &[u8], network: Network) -> Result<Self> {
+        ensure!(bytes.len() >= 8 && &bytes[..8] == SNAPSHOT_MAGIC, "not an archive snapshot");
+        let mut rest = &bytes[8..];
+        let mut take = || -> Result<&[u8]> {
+            ensure!(rest.len() >= 8, "snapshot is cut");
+            let n = u64::from_le_bytes(rest[..8].try_into().expect("8 bytes"));
+            ensure!(n <= SNAPSHOT_MAX_SECTION && (rest.len() - 8) as u64 >= n, "snapshot is cut");
+            let (section, tail) = rest[8..].split_at(n as usize);
+            rest = tail;
+            Ok(section)
+        };
+        let (meta, leaves, chunks) = (take()?, take()?, take()?);
+        ensure!(rest.is_empty(), "snapshot has trailing bytes");
+
+        let mut a = Self::from_meta(meta, network)?;
+        a.load_leaf_page(0, leaves)?;
+        let chunks: Vec<Chunk> = bincode::deserialize(chunks)?;
+        a.chunks = chunks;
+        a.finish_load()?;
+        a.check()?;
+        for p in 0..a.leaf_pages() {
+            a.dirty_leaf_pages.insert(p);
+        }
+        for p in 0..a.chunk_pages() {
+            a.dirty_chunk_pages.insert(p);
+        }
+        Ok(a)
+    }
+
+    /// Tie the archive to the chain: `block` must be the block at the
+    /// archive's height, its hash the archive's tip, and the mutator set it
+    /// commits to the archive's.
+    pub fn verify_tip_block(&self, block: RpcWalletBlock) -> Result<()> {
+        let Decoded { hash, height, kernel } = decode(block);
+        ensure!(
+            height == self.height,
+            "expected block {}, the server sent block {height}",
+            self.height
+        );
+        ensure!(
+            hash == self.tip_hash,
+            "the snapshot ends on a block that is not on your server's chain (block {height})"
+        );
+        ensure!(
+            msa_after(&kernel, hash)?.hash() == self.msa.hash(),
+            "the snapshot's mutator set is not the one block {height} commits to"
+        );
+        Ok(())
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use neptune_mutator_set::commit;
@@ -660,5 +757,24 @@ mod tests {
         assert_eq!(a.tip_hash(), Block::genesis(Network::Main).hash());
         a.check().unwrap();
         assert_eq!(a.block_leaves(0), Some((0, a.num_leaves() - 1)));
+    }
+
+    #[test]
+    fn snapshot_round_trips_and_rejects_damage() {
+        let a = Archive::new(Network::Main).unwrap();
+        let snap = a.to_snapshot().unwrap();
+        let b = Archive::from_snapshot(&snap, Network::Main).unwrap();
+        assert_eq!(b.height(), a.height());
+        assert_eq!(b.tip_hash(), a.tip_hash());
+        assert_eq!(b.msa().hash(), a.msa().hash());
+        assert_eq!(b.to_snapshot().unwrap(), snap);
+        assert!(!b.dirty_pages().0.is_empty());
+
+        assert!(Archive::from_snapshot(&snap[..snap.len() - 1], Network::Main).is_err());
+        assert!(Archive::from_snapshot(b"ESCARCH0", Network::Main).is_err());
+        assert!(Archive::from_snapshot(&snap, Network::Testnet(0)).is_err());
+        let mut longer = snap.clone();
+        longer.push(0);
+        assert!(Archive::from_snapshot(&longer, Network::Main).is_err());
     }
 }

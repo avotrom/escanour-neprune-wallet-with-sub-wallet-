@@ -1,4 +1,4 @@
-# Succinct node (0.24)
+# Full node mode (0.25)
 
 Since soft fork epsilon (neptune-core v0.20.1; main net block 62,500, testnet-0
 block 7,144) the proof of every block also establishes that its predecessor is
@@ -6,19 +6,39 @@ valid, recursively down to the last block below the activation height. One
 proof therefore covers the whole chain above that block.
 
 The wallet uses this to stop trusting its sync server for chain validity.
+(0.24 shipped this as a separate "succinct node" build; 0.25 folds it into
+one Full node mode in a single build.)
 
-## Two builds
+## Full node mode
 
-| | `escanour-light` | `escanour-node` |
-| --- | --- | --- |
-| Needs a node of your own | no | no |
-| Chain validity | trusted from the sync server | proven in the browser |
-| Node module (`pkg/node`) | not shipped | shipped, loaded only when on |
-| Switch | none | Settings > Servers > Succinct node (off by default) |
+One switch: Settings > Full node. It turns on both halves together:
 
-`scripts/package.sh` cuts both from the same source; `lib/flavor.js` is the
-only line that differs. With the switch off the node build behaves exactly
-like the light build.
+- **Chain proof.** The wallet verifies the recursive zk-STARK proof of the
+  tip block (below).
+- **Archival mutator set.** The wallet keeps the whole AOCL and every
+  inactive Bloom-filter chunk, so membership proofs and spend checks never
+  ask a server. It is built block by block, or loaded from a snapshot.
+
+Off, the wallet works as before: no node, and the sync server is trusted for
+chain validity.
+
+## Archive snapshots
+
+Building the archive downloads every block once. A snapshot skips that:
+
+```
+neptune-light --server http://127.0.0.1:9797 archive-export      # on the Mac running neptune-core
+neptune-light --server http://127.0.0.1:9797 archive-check FILE   # optional
+```
+
+Load the file in Settings > Full node > Load from a snapshot (from a file, or
+from an https address). A wallet with a finished archive can also save one
+(Save as snapshot). A snapshot needs no trust in whoever made it: its leaves
+and chunks must rebuild the accumulator stored with it, and the block at its
+height, fetched from your own server, must have the snapshot's tip hash and
+commit to the snapshot's mutator set. After that the archive continues from
+the next block. neptune-core v0.20.1 has no RPC that serves the archival
+mutator set, so the tool builds it from blocks on your machine, once.
 
 ## What is checked
 
@@ -50,7 +70,7 @@ activation is followed; Node A wins a tie.
   block before activation is the trust anchor. `KNOWN_ANCHORS` in
   `extension/lib/succinct.js` is empty in this release, so the wallet records
   the anchor from the first proven tip and refuses any later chain built on a
-  different one. Compare the value shown in Settings > Servers with a block
+  different one. Compare the value shown in Settings > Full node > Trust anchor with a block
   explorer or your own node, or paste a hash you trust. If two nodes report
   different anchors before one is set, nothing is pinned.
 - **The tip's own mutator set update**, unless the wallet stood exactly one
@@ -84,3 +104,5 @@ neptune-core and use Own node.
 - `extension/node-worker.js`: verification in its own Web Worker.
 - `extension/node-runner.js`: the loop in the offscreen document.
 - `extension/lib/succinct.js`: anchors, decisions, status (shared, tested).
+- `crates/light-core/src/archive.rs`: the archive and its snapshot format.
+- `crates/light-cli`: `archive-export`, `archive-check`.

@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
-# Build the wasm modules (wallet, prover, succinct node) into extension/pkg/
-# and print their sizes. scripts/package.sh then cuts the two builds.
+# Build the wasm modules (wallet, prover, full-node proof checker) into
+# extension/pkg/ and print their sizes.
 #   scripts/build.sh            release build
 #   scripts/build.sh --dev      faster build, slower proving
 set -euo pipefail
@@ -41,4 +41,3 @@ echo "wasm sizes:"
 ls -lh extension/pkg/light/*.wasm extension/pkg/prover/*.wasm extension/pkg/node/*.wasm
 echo
 echo "Load it: chrome://extensions -> Developer mode -> Load unpacked -> $ROOT/extension"
-echo "Or cut the two builds (light, node): scripts/package.sh"

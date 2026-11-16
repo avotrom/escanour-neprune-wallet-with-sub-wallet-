@@ -394,12 +394,36 @@
         <span class="icon-space"></span>
       </header>
       <div class="list">
-        <h3 data-i18n="pc.group">Privacy</h3>
+        <h3 data-i18n="set.wallet">Wallet</h3>
         <div class="group">
-          <button class="row pc-row" data-go="pcheck">
-            <span class="light" id="pcLight" data-s="info" aria-hidden="true"></span>
-            <span class="row-text"><b class="row-b" data-i18n="pc.title">Privacy check</b><small id="pcSummary"></small></span>
+          <button class="row" data-go="phrase">
+            <span class="r-ic c6"><svg><use href="#i-phrase"/></svg></span><span data-i18n="set.phrase">Recovery phrase</span><svg class="chev"><use href="#i-chev"/></svg>
+          </button>
+          <button class="row" data-go="contacts">
+            <span class="r-ic c5"><svg><use href="#i-users"/></svg></span><span data-i18n="ct.title">Contacts</span><svg class="chev"><use href="#i-chev"/></svg>
+          </button>
+          <button class="row" data-go="watch">
+            <span class="r-ic c3"><svg><use href="#i-eye"/></svg></span>
+            <span class="row-text"><b class="row-b" data-i18n="watch.title">Watch-only addresses</b><small id="watchNavHint"></small></span>
             <svg class="chev"><use href="#i-chev"/></svg>
+          </button>
+          <button class="row" data-go="claim">
+            <span class="r-ic c5"><svg><use href="#i-inbox"/></svg></span>
+            <span class="row-text"><b class="row-b" data-i18n="assets.title">Recover assets</b><small data-i18n="assets.navHint">Fast, Private scan or Own node</small></span>
+            <svg class="chev"><use href="#i-chev"/></svg>
+          </button>
+        </div>
+
+        <h3 data-i18n="set.network">Network</h3>
+        <div class="group">
+          <button class="row" data-go="archive">
+            <span class="r-ic c5"><svg><use href="#i-node"/></svg></span>
+            <span class="row-text"><b class="row-b" data-i18n="fn.title">Full node</b><small id="archNavHint"></small></span>
+            <span class="light" id="archNavLight" data-s="off" aria-hidden="true"></span>
+            <svg class="chev"><use href="#i-chev"/></svg>
+          </button>
+          <button class="row" data-go="servers">
+            <span class="r-ic c2"><svg><use href="#i-server"/></svg></span><span data-i18n="set.servers">Servers</span><svg class="chev"><use href="#i-chev"/></svg>
           </button>
           <button class="row" data-go="tor" id="torNavRow" hidden>
             <span class="r-ic tor-ic"><svg><use href="#i-onion"/></svg></span>
@@ -407,6 +431,24 @@
             <span class="light" id="torNavLight" data-s="off" aria-hidden="true"></span>
             <svg class="chev"><use href="#i-chev"/></svg>
           </button>
+        </div>
+
+        <h3 data-i18n="set.security">Security</h3>
+        <div class="group">
+          <label class="row">
+            <span class="r-ic c5"><svg><use href="#i-timer"/></svg></span><span data-i18n="set.autolock">Auto-lock</span>
+            <select id="setLock" class="pill" dir="ltr">
+              <option value="5">5 min</option>
+              <option value="15">15 min</option>
+              <option value="30">30 min</option>
+              <option value="60">60 min</option>
+              <option value="240">4 h</option>
+            </select>
+          </label>
+          <label class="row">
+            <span class="r-ic c3"><svg><use href="#i-chart"/></svg></span><span><b class="row-b" data-i18n="set.prices">Price lookup</b><small data-i18n="set.pricesHint">CoinGecko sees your IP when on</small></span>
+            <input id="setPrices" type="checkbox" class="switch" />
+          </label>
         </div>
 
         <h3 data-i18n="set.prefs">Preferences</h3>
@@ -451,57 +493,10 @@
           </label>
         </div>
 
-        <h3 data-i18n="more.group">Coins and addresses</h3>
+        <h3 data-i18n="set.more">More</h3>
         <div class="group">
-          <button class="row" data-go="watch">
-            <span class="r-ic c3"><svg><use href="#i-eye"/></svg></span>
-            <span class="row-text"><b class="row-b" data-i18n="watch.title">Watch-only addresses</b><small id="watchNavHint"></small></span>
-            <svg class="chev"><use href="#i-chev"/></svg>
-          </button>
-          <button class="row" data-go="claim">
-            <span class="r-ic c5"><svg><use href="#i-inbox"/></svg></span>
-            <span class="row-text"><b class="row-b" data-i18n="assets.title">Recover assets</b><small data-i18n="assets.navHint">Fast, Private scan or Own node</small></span>
-            <svg class="chev"><use href="#i-chev"/></svg>
-          </button>
-          <button class="row" data-go="archive">
-            <span class="r-ic c2"><svg><use href="#i-db"/></svg></span>
-            <span class="row-text"><b class="row-b" data-i18n="arch.title">Local archive</b><small id="archNavHint"></small></span>
-            <span class="light" id="archNavLight" data-s="off" aria-hidden="true"></span>
-            <svg class="chev"><use href="#i-chev"/></svg>
-          </button>
-        </div>
-
-        <h3 data-i18n="set.privacy">Privacy and security</h3>
-        <div class="group">
-          <label class="row">
-            <span class="r-ic c5"><svg><use href="#i-timer"/></svg></span><span data-i18n="set.autolock">Auto-lock</span>
-            <select id="setLock" class="pill" dir="ltr">
-              <option value="5">5 min</option>
-              <option value="15">15 min</option>
-              <option value="30">30 min</option>
-              <option value="60">60 min</option>
-              <option value="240">4 h</option>
-            </select>
-          </label>
-          <label class="row">
-            <span class="r-ic c3"><svg><use href="#i-chart"/></svg></span><span><b class="row-b" data-i18n="set.prices">Price lookup</b><small data-i18n="set.pricesHint">CoinGecko sees your IP when on</small></span>
-            <input id="setPrices" type="checkbox" class="switch" />
-          </label>
-          <button class="row" data-go="phrase">
-            <span class="r-ic c6"><svg><use href="#i-phrase"/></svg></span><span data-i18n="set.phrase">Recovery phrase</span><svg class="chev"><use href="#i-chev"/></svg>
-          </button>
-          <button class="row" data-go="servers">
-            <span class="r-ic c2"><svg><use href="#i-server"/></svg></span><span data-i18n="set.servers">Servers</span><svg class="chev"><use href="#i-chev"/></svg>
-          </button>
           <button class="row" data-go="advanced">
             <span class="r-ic c4"><svg><use href="#i-sliders"/></svg></span><span data-i18n="set.advanced">Advanced</span><svg class="chev"><use href="#i-chev"/></svg>
-          </button>
-        </div>
-
-        <h3 data-i18n="set.wallet">Wallet</h3>
-        <div class="group">
-          <button class="row" data-go="contacts">
-            <span class="r-ic c5"><svg><use href="#i-users"/></svg></span><span data-i18n="ct.title">Contacts</span><svg class="chev"><use href="#i-chev"/></svg>
           </button>
           <button id="setRestore" class="row">
             <span class="r-ic c3"><svg><use href="#i-key"/></svg></span><span data-i18n="set.restore">Restore another wallet</span><svg class="chev"><use href="#i-chev"/></svg>
@@ -576,58 +571,59 @@
         <span class="icon-space"></span>
       </header>
       <div class="pad stack">
-        <div class="card stack own-node">
-          <label class="row node-row">
-            <span class="r-ic c5"><svg><use href="#i-node"/></svg></span><b data-i18n="node.mode">Node mode</b>
-            <input id="nodeMode" type="checkbox" class="switch" />
-          </label>
-          <p class="hint" data-i18n="node.why2">Use your own neptune-core for everything: syncing, sending and fast restore. No outside server learns your IP, when you are online, or which coins are yours.</p>
-          <label class="field"><span data-i18n="node.url">Node address</span>
-            <input id="nodeUrl" spellcheck="false" value="http://127.0.0.1:9797/" />
-          </label>
-          <div class="code-row"><code id="nodeCmd">neptune-core --listen-rpc --rpc-modules Node,Chain,Wallet,Utxoindex --utxo-index</code><button id="copyCmd" class="mini" data-i18n-aria="recv.copy" aria-label="Copy"><svg><use href="#i-copy"/></svg></button></div>
-          <p class="hint small" data-i18n="node.note2">Add --network testnet for Testnet. --utxo-index (and the Utxoindex module) is only needed for fast restore. Keep the RPC port on 127.0.0.1; never expose it to the internet.</p>
-          <ul id="nodeChecks" class="node-checks" hidden></ul>
-        </div>
-        <div id="succinctCard" class="card stack own-node" hidden>
-          <label class="row node-row">
-            <span class="r-ic c5"><svg><use href="#i-shield"/></svg></span><b data-i18n="suc.title">Succinct node</b>
-            <input id="succinctOn" type="checkbox" class="switch" />
-          </label>
-          <p class="hint" data-i18n="suc.why">Verify the chain yourself. Each new tip's proof is checked in this browser: it proves every block above the activation block, so a server can no longer show you an invented chain. No extra node to run.</p>
-          <ul id="succinctFacts" class="node-checks" hidden></ul>
-          <label class="field"><span data-i18n="suc.anchor">Trust anchor (hash of the last block before activation)</span>
-            <input id="succinctAnchor" spellcheck="false" autocomplete="off" />
-            <small id="succinctAnchorHint" class="hint"></small>
-          </label>
-          <div class="row2">
-            <button id="succinctVerify" class="btn soft" data-i18n="suc.verify">Verify now</button>
-            <button id="succinctAnchorSave" class="btn soft" data-i18n="suc.pin">Save anchor</button>
-          </div>
-          <label class="row"><span data-i18n="suc.keep">Keep following the chain when all windows are closed</span><input id="succinctKeep" type="checkbox" class="switch" /></label>
-          <p id="succinctMsg" class="hint" role="status"></p>
-        </div>
         <div id="srvNet" class="seg" role="tablist">
           <button class="seg-btn" data-net="main" data-i18n="net.main">Mainnet</button>
           <button class="seg-btn" data-net="testnet" data-i18n="net.testnet">Testnet</button>
           <button class="seg-btn" data-net="testnet-mock" data-i18n="net.mockShort">Mock testnet</button>
         </div>
-        <label class="field"><span data-i18n="srv.nodeA">Node A</span>
-          <input id="setSync" spellcheck="false" placeholder="https://" />
-        </label>
-        <label class="row"><span data-i18n="srv.pool">Random node with fallback</span><input id="setNodePool" type="checkbox" class="switch" /></label>
-        <p class="hint" data-i18n="srv.poolHint">Choose A or B once per browser session. If a read fails, switch to the other. Uses only these two configured nodes.</p>
-        <label id="nodeBField" class="field" hidden><span data-i18n="srv.nodeB">Node B</span><input id="setNodeB" spellcheck="false" placeholder="https://" /></label>
-        <p id="nodeSessionStatus" class="hint" role="status"></p>
-        <label class="field"><span data-i18n="srv.broadcast">Broadcast server</span>
-          <input id="setBroadcast" spellcheck="false" placeholder="https://" />
-          <small class="hint" data-i18n="srv.poolBroadcastHint">Leave empty to use the session node. A different address here overrides it for sending. Uploads are never automatically retried.</small>
-        </label>
-        <div class="row2">
-          <button id="testServer" class="btn soft" data-i18n="srv.test">Test connection</button>
-          <button id="setSave" class="btn primary" data-i18n="common.save">Save</button>
+
+        <span class="field-label" data-i18n="srv.source">Blocks and payments go through</span>
+        <div id="srvSource" class="seg" role="radiogroup">
+          <button class="seg-btn" data-source="public" data-i18n="srv.public">A public server</button>
+          <button class="seg-btn" data-source="node" data-i18n="srv.mine">My own node</button>
+        </div>
+        <input id="nodeMode" type="checkbox" hidden />
+
+        <div id="srvNodePanel" class="card stack own-node" hidden>
+          <p class="hint" data-i18n="node.why2">Use your own neptune-core for everything: syncing, sending and fast restore. No outside server learns your IP, when you are online, or which coins are yours.</p>
+          <label class="field"><span data-i18n="node.url">Node address</span>
+            <input id="nodeUrl" spellcheck="false" value="http://127.0.0.1:9797/" />
+          </label>
+          <button id="nodeConnect" class="btn primary" data-i18n="srv.connect">Connect</button>
+          <details class="opts">
+            <summary data-i18n="srv.howRun">How to run the node</summary>
+            <div class="stack">
+              <div class="code-row"><code id="nodeCmd">neptune-core --listen-rpc --rpc-modules Node,Chain,Wallet,Utxoindex --utxo-index</code><button id="copyCmd" class="mini" data-i18n-aria="recv.copy" aria-label="Copy"><svg><use href="#i-copy"/></svg></button></div>
+              <p class="hint small" data-i18n="node.note2">Add --network testnet for Testnet. --utxo-index (and the Utxoindex module) is only needed for fast restore. Keep the RPC port on 127.0.0.1; never expose it to the internet.</p>
+            </div>
+          </details>
+          <ul id="nodeChecks" class="node-checks" hidden></ul>
+        </div>
+
+        <div id="srvPublicPanel" class="stack">
+          <label class="field"><span data-i18n="srv.nodeA">Node A</span>
+            <input id="setSync" spellcheck="false" placeholder="https://" />
+          </label>
+          <details class="opts">
+            <summary data-i18n="srv.more">More options</summary>
+            <div class="stack">
+              <label class="row"><span data-i18n="srv.pool">Random node with fallback</span><input id="setNodePool" type="checkbox" class="switch" /></label>
+              <p class="hint small" data-i18n="srv.poolHint">Choose A or B once per browser session. If a read fails, switch to the other. Uses only these two configured nodes.</p>
+              <label id="nodeBField" class="field" hidden><span data-i18n="srv.nodeB">Node B</span><input id="setNodeB" spellcheck="false" placeholder="https://" /></label>
+              <label class="field"><span data-i18n="srv.broadcast">Broadcast server</span>
+                <input id="setBroadcast" spellcheck="false" placeholder="https://" />
+                <small class="hint" data-i18n="srv.poolBroadcastHint">Leave empty to use the session node. A different address here overrides it for sending. Uploads are never automatically retried.</small>
+              </label>
+            </div>
+          </details>
+          <p id="nodeSessionStatus" class="hint" role="status"></p>
+          <div class="row2">
+            <button id="testServer" class="btn soft" data-i18n="srv.test">Test connection</button>
+            <button id="setSave" class="btn primary" data-i18n="common.save">Save</button>
+          </div>
         </div>
         <p id="setMsg" class="hint" role="status"></p>
+        <p class="hint small" data-i18n="srv.fullNodeHint">With Full node mode on, the wallet checks the chain proof of whatever these servers send.</p>
       </div>
     </main>
 
@@ -678,22 +674,6 @@
       </div>
     </main>
 
-    <main id="v-pcheck" class="screen sub" hidden>
-      <header class="page-head">
-        <button class="icon to-settings" data-i18n-aria="common.back" aria-label="Back"><svg><use href="#i-back"/></svg></button>
-        <h2 data-i18n="pc.title">Privacy check</h2>
-        <span class="icon-space"></span>
-      </header>
-      <div class="pad stack">
-        <div id="pcHero" class="pc-hero" data-s="info">
-          <span class="light big" aria-hidden="true"></span>
-          <div><b id="pcHeadline"></b><small id="pcSub"></small></div>
-        </div>
-        <ul id="pcList" class="pc-list"></ul>
-        <p class="hint small" data-i18n="pc.legend">Green: protected. Blue: worth knowing. Amber: something to improve. Red: not working as set.</p>
-      </div>
-    </main>
-
     <main id="v-advanced" class="screen sub" hidden>
       <header class="page-head">
         <button class="icon to-settings" data-i18n-aria="common.back" aria-label="Back"><svg><use href="#i-back"/></svg></button>
@@ -701,8 +681,6 @@
         <span class="icon-space"></span>
       </header>
       <div class="pad stack">
-        <label class="row"><span class="r-ic c2"><svg><use href="#i-change"/></svg></span><span data-i18n="adv.waitBlock">Wait for a fresh block</span><input id="setWaitBlock" type="checkbox" class="switch" /></label>
-        <small class="hint" data-i18n="adv.waitBlockHint">Off by default. When on, waits briefly for the next block before building. Proof validation stays the same.</small>
         <label class="field"><span data-i18n="adv.workers">Proving workers</span>
           <select id="setWorkers">
             <option value="auto" data-i18n="adv.workersAuto">Automatic</option>
@@ -719,16 +697,6 @@
           </select>
           <small class="hint" data-i18n="adv.lowMemHint">Large proofs can skip keeping a stretched copy of their table in memory and recompute it instead. The proof is the same.</small>
         </label>
-        <label class="row">
-          <span class="r-ic c5"><svg><use href="#i-shield"/></svg></span><span data-i18n="adv.exact">Exact privacy count</span>
-          <input id="setExact" type="checkbox" class="switch" />
-        </label>
-        <small class="hint" data-i18n="adv.exactHint">Keeps every block's spends (public data) so each coin's anonymity set is counted exactly. Reads the chain once in the background.</small>
-        <div class="field">
-          <span data-i18n="adv.lastProofs">Last proofs</span>
-          <p id="advProofs" class="hint" data-i18n="adv.noProofs">No payment proved on this device yet.</p>
-          <ol id="advProofList" class="proof-list" hidden></ol>
-        </div>
         <dl class="summary">
           <dt data-i18n="setup.network">Network</dt><dd id="advNetwork"></dd>
           <dt data-i18n="adv.height">Wallet height</dt><dd id="advHeight"></dd>
@@ -854,10 +822,41 @@
     <main id="v-archive" class="screen sub" hidden>
       <header class="page-head">
         <button class="icon to-settings" data-i18n-aria="common.back" aria-label="Back"><svg><use href="#i-back"/></svg></button>
-        <h2 data-i18n="arch.title">Local archive</h2>
+        <h2 data-i18n="fn.title">Full node</h2>
         <span class="icon-space"></span>
       </header>
       <div class="pad stack">
+        <div class="group">
+          <label class="row">
+            <span class="r-ic c5"><svg><use href="#i-node"/></svg></span>
+            <span class="row-text"><b class="row-b" data-i18n="fn.switch">Full node mode</b><small id="archEstimate"></small></span>
+            <input id="setArchive" type="checkbox" class="switch" />
+          </label>
+        </div>
+        <p class="hint small" data-i18n="fn.why"></p>
+        <p id="archErr" class="err" role="alert"></p>
+
+        <h3 class="sub-h" data-i18n="fn.chain">Chain proof</h3>
+        <ul id="succinctFacts" class="node-checks"></ul>
+        <div id="fnChainTools" class="stack" hidden>
+          <div class="row2">
+            <button id="succinctVerify" class="btn soft" data-i18n="suc.verify">Verify now</button>
+          </div>
+          <details class="opts">
+            <summary data-i18n="fn.anchorTitle">Trust anchor</summary>
+            <div class="stack">
+              <label class="field"><span data-i18n="suc.anchor">Hash of the last block before activation</span>
+                <input id="succinctAnchor" spellcheck="false" autocomplete="off" />
+                <small id="succinctAnchorHint" class="hint"></small>
+              </label>
+              <button id="succinctAnchorSave" class="btn soft" data-i18n="suc.pin">Save anchor</button>
+            </div>
+          </details>
+          <div class="group"><label class="row"><span data-i18n="suc.keep">Keep following the chain when all windows are closed</span><input id="succinctKeep" type="checkbox" class="switch" /></label></div>
+        </div>
+        <p id="succinctMsg" class="hint" role="status"></p>
+
+        <h3 class="sub-h" data-i18n="fn.archive">Archival mutator set</h3>
         <div id="archHero" class="arch-hero" data-state="off">
           <svg class="arch-ring" viewBox="0 0 44 44" aria-hidden="true">
             <circle class="track" cx="22" cy="22" r="19" pathLength="100"/>
@@ -867,26 +866,28 @@
           <b id="archHeroTitle"></b>
           <small id="archHeroSub"></small>
         </div>
-        <div class="group">
-          <label class="row">
-            <span class="r-ic c2"><svg><use href="#i-db"/></svg></span>
-            <span class="row-text"><b class="row-b" data-i18n="arch.switch">Keep the archive on this device</b><small id="archEstimate"></small></span>
-            <input id="setArchive" type="checkbox" class="switch" />
-          </label>
-        </div>
-        <p id="archErr" class="err" role="alert"></p>
         <dl id="archFacts" class="arch-facts" hidden></dl>
         <p id="archHow" class="hint small"></p>
-        <h3 class="sub-h" data-i18n="arch.gives">What it gives</h3>
-        <ul class="arch-gives">
-          <li data-i18n="arch.g1"></li>
-          <li data-i18n="arch.g2"></li>
-          <li data-i18n="arch.g3"></li>
-        </ul>
         <p id="archLag" class="hint small"></p>
-        <p class="hint small" data-i18n="arch.vsNode"></p>
-        <button id="archCheck" class="btn soft" hidden><span data-i18n="arch.check">Check integrity</span></button>
+        <div id="snapBox" class="card stack" hidden>
+          <b data-i18n="snap.title">Load from a snapshot</b>
+          <p class="hint small" data-i18n="snap.why"></p>
+          <label class="field"><span data-i18n="snap.url">Snapshot address</span>
+            <input id="snapUrl" spellcheck="false" placeholder="https://" />
+          </label>
+          <div class="row2">
+            <button id="snapFetch" class="btn soft" data-i18n="snap.fetch">Download</button>
+            <button id="snapPick" class="btn soft" data-i18n="snap.file">From a file</button>
+          </div>
+          <input id="snapFile" type="file" accept=".escarch,application/octet-stream" hidden />
+          <p id="snapMsg" class="hint small" role="status"></p>
+        </div>
+        <div class="row2">
+          <button id="archCheck" class="btn soft" hidden><span data-i18n="arch.check">Check integrity</span></button>
+          <button id="snapExport" class="btn soft" hidden><span data-i18n="snap.export">Save as snapshot</span></button>
+        </div>
         <p id="archChecked" class="hint small center"></p>
+        <p class="hint small" data-i18n="fn.limits"></p>
       </div>
     </main>
 
