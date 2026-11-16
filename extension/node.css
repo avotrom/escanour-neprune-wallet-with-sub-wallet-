@@ -1,0 +1,6 @@
+.node-page main { max-width: 520px; margin: 0 auto; }
+body.node-page { height: auto; min-height: 100vh; overflow: auto; }
+.np-log { background: var(--card, #1c1c25); color: var(--sub); font: 11.5px/1.45 ui-monospace, SFMono-Regular, Menlo, monospace; padding: 10px 12px; border-radius: 12px; max-height: 220px; overflow: auto; white-space: pre-wrap; word-break: break-all; }
+.np-steps { margin: 0; padding-inline-start: 18px; display: grid; gap: 6px; color: var(--text); font-size: 13px; }
+#npSetup summary { cursor: pointer; }
+textarea#npPeers { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; }

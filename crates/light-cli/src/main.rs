@@ -26,6 +26,9 @@ use light_core::state::WalletState;
 use light_core::{jobs, parse_network, rpc, sync};
 use rayon::prelude::*;
 
+mod native_host;
+mod peer_node;
+
 const DEFAULT_SERVER: &str = "https://wallet.neptunefundamentals.org";
 
 struct Args {
@@ -166,6 +169,26 @@ fn main() -> Result<()> {
             let st = sync::state_from_block(block, k.network())?;
             save(&args, &st)?;
             println!("Wallet starts after block {start}. Run `sync` next.");
+        }
+        // Chrome starts this through the wrapper install-host writes.
+        "native-host" => native_host::serve_once()?,
+        "install-host" => {
+            let id = arg_after(&args.rest, "--extension-id")
+                .context("install-host --extension-id ID (chrome://extensions, Developer mode)")?;
+            native_host::install(&id)?;
+        }
+        // Light node: Neptune peers in, the wallet's RPC out (see peer_node.rs).
+        //   neptune-light peer-node --peer HOST[:9798] [--peer ...] [--listen 127.0.0.1:9797]
+        "peer-node" => {
+            let mut peers = vec![];
+            let mut it = args.rest.iter().skip(1);
+            while let Some(a) = it.next() {
+                if a == "--peer" {
+                    peers.push(it.next().context("--peer needs HOST[:PORT]")?.clone());
+                }
+            }
+            let listen = arg_after(&args.rest, "--listen").unwrap_or_else(|| "127.0.0.1:9797".into());
+            peer_node::run(parse_network(&args.network)?, &listen, &peers)?;
         }
         // Build the archival mutator set from a node (your own neptune-core:
         // --server http://127.0.0.1:9799) and write it as one snapshot file
@@ -439,6 +462,12 @@ fn main() -> Result<()> {
                 "  archive-export [--out FILE] [--to HEIGHT] [--from FILE]  archival mutator set snapshot"
             );
             println!("  archive-check FILE                 verify a snapshot against the server");
+            println!(
+                "  peer-node --peer HOST[:9798] [--listen 127.0.0.1:9797]  light node: Neptune peers, no RPC server"
+            );
+            println!(
+                "  install-host --extension-id ID     let the extension's Node page start/stop nodes"
+            );
         }
     }
     Ok(())

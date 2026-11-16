@@ -1,0 +1,61 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <title>Escanour · Node</title>
+    <link rel="stylesheet" href="popup.css" />
+    <link rel="stylesheet" href="node.css" />
+    <script src="lib/early.js"></script>
+  </head>
+  <body class="in-tab node-page">
+    <main class="pad stack">
+      <header class="page-head">
+        <span class="icon-space"></span>
+        <h2 data-i18n="np.title">Node on this Mac</h2>
+        <span class="icon-space"></span>
+      </header>
+      <p class="hint" data-i18n="np.why">Run a node yourself and the wallet syncs from it: no public RPC server.</p>
+
+      <div id="npKind" class="seg" role="radiogroup">
+        <button class="seg-btn on" data-kind="light" data-i18n="np.light">Light node</button>
+        <button class="seg-btn" data-kind="full" data-i18n="np.full">Full node</button>
+      </div>
+      <p id="npKindHint" class="hint small"></p>
+
+      <div id="npLightOpts" class="stack">
+        <label class="field"><span data-i18n="np.peers">Neptune peers (one per line)</span>
+          <textarea id="npPeers" rows="3" spellcheck="false" placeholder="203.0.113.7:9798"></textarea>
+          <small class="hint" data-i18n="np.peersHint">Any Neptune node's address. One is enough: the light node asks it for more.</small>
+        </label>
+      </div>
+      <div id="npFullOpts" class="stack" hidden>
+        <label class="field"><span data-i18n="np.corePath">neptune-core program (optional)</span>
+          <input id="npCorePath" spellcheck="false" placeholder="~/.cargo/bin/neptune-core" />
+          <small id="npCoreFound" class="hint"></small>
+        </label>
+      </div>
+
+      <div class="row2">
+        <button id="npStart" class="btn primary" data-i18n="np.start">Start</button>
+        <button id="npStop" class="btn soft" data-i18n="np.stop">Stop</button>
+      </div>
+      <label class="row group"><span data-i18n="np.use">Wallet syncs from this node, with Full node mode</span><input id="npUse" type="checkbox" class="switch" checked /></label>
+
+      <dl id="npFacts" class="summary"></dl>
+      <pre id="npLog" class="np-log" hidden></pre>
+      <p id="npMsg" class="hint" role="status"></p>
+
+      <details id="npSetup" class="card stack" open hidden>
+        <summary><b data-i18n="np.setupTitle">One-time setup</b></summary>
+        <ol class="np-steps">
+          <li data-i18n="np.setup1">Download neptune-light for macOS from the wallet's GitHub release and unzip it.</li>
+          <li data-i18n="np.setup2">In Terminal, run this once (it lets this page start and stop nodes):</li>
+        </ol>
+        <div class="code-row"><code id="npInstallCmd"></code><button id="npCopy" class="mini" data-i18n-aria="recv.copy" aria-label="Copy">⧉</button></div>
+        <p class="hint small" data-i18n="np.setup3">macOS may ask you to allow the program the first time (System Settings → Privacy & Security).</p>
+        <button id="npRetry" class="btn soft" data-i18n="np.retry">Check again</button>
+      </details>
+    </main>
+    <script type="module" src="node.js"></script>
+  </body>
+</html>

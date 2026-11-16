@@ -18,13 +18,23 @@ One switch for both halves of a node the browser can run:
   (`neptune-light-macos.zip` in this release). Every snapshot is checked in
   full and must match your server's chain; who made it does not matter.
 
-Chrome cannot connect to other Neptune nodes directly (no TCP), so blocks
-still come from your sync server or your own node.
+## Node on this Mac (Settings > Network)
+
+A page that starts and stops a node on your Mac, so the wallet syncs with no
+public RPC server:
+
+- **Light node**: `neptune-light peer-node`. Talks only to Neptune peers over
+  their own peer protocol, stores no chain; the wallet checks the recursive
+  proof. Needs no change on Neptune's side.
+- **Full node**: `neptune-core`, the official archival node.
+
+One-time setup: `./neptune-light install-host --extension-id <ID>`. See
+[docs/NODE.md](docs/NODE.md).
 
 ## Settings, reorganised
 
 - **Wallet:** Recovery phrase, Contacts, Watch-only addresses, Recover assets
-- **Network:** Full node, Servers, Tor
+- **Network:** Full node, Node on this Mac, Servers, Tor
 - **Security:** Auto-lock, Price lookup
 - **Preferences:** Theme, Local currency, Language, Notifications
 - **More:** Advanced, Restore another wallet, Create a new wallet, Remove wallet
@@ -50,5 +60,5 @@ check on messages.
   New unit test for the snapshot format (run locally: `cargo test -p light-core snapshot`).
 - Settings, Full node, Servers and Advanced screens rendered and checked in
   headless Chrome (English and Arabic).
-- **Not yet tested:** a real snapshot against main net, and the extension
-  loaded in a real Chrome. Test on testnet first.
+- **Not yet tested:** the light node against main-net peers, a real snapshot,
+  and the extension in a real Chrome. Test on testnet first.

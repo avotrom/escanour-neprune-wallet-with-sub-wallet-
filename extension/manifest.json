@@ -32,7 +32,8 @@
     "unlimitedStorage",
     "notifications",
     "sidePanel",
-    "proxy"
+    "proxy",
+    "nativeMessaging"
   ],
   "host_permissions": [
     "https://wallet.neptunefundamentals.org/*",

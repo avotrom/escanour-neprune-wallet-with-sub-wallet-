@@ -3468,3 +3468,6 @@ async function loadAddressHistory(reset=false) {
 $('addressHistoryOpen').onclick=()=>{showScreen('address-history');addressHistoryKind=app.settings.addressKind||'generation';loadAddressHistory(true);};
 for(const b of document.querySelectorAll('[data-history-kind]'))b.onclick=()=>{addressHistoryKind=b.dataset.historyKind;loadAddressHistory(true);};
 $('addressHistoryMore').onclick=()=>loadAddressHistory(false);
+
+// Node on this Mac: its own page, in a tab.
+$('openNodePage').onclick = () => chrome.tabs.create({ url: chrome.runtime.getURL('node.html') });

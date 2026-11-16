@@ -133,6 +133,16 @@ dependencies = [
 ]
 
 [[package]]
+name = "arraystring"
+version = "0.3.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "4d517c467117e1d8ca795bc8cc90857ff7f79790cca0e26f6e9462694ece0185"
+dependencies = [
+ "serde",
+ "typenum",
+]
+
+[[package]]
 name = "async-trait"
 version = "0.1.92"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -321,6 +331,12 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "fc652a48c352aef3ea3aed32080501cf3ef6ed5da78602a020c991775b0aff04"
 
 [[package]]
+name = "bytesize"
+version = "1.3.3"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "2e93abca9e28e0a1b9877922aacb20576e05d4679ffa78c3d6dc22a26a216659"
+
+[[package]]
 name = "cc"
 version = "1.5.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -441,7 +457,7 @@ version = "3.1.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "faf9468729b8cbcea668e36183cb69d317348c2e08e994829fb56ebfdfbaac34"
 dependencies = [
- "windows-sys 0.48.0",
+ "windows-sys 0.61.2",
 ]
 
 [[package]]
@@ -689,7 +705,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "c54e03a951783e8b327515db3f2a2fd0e3bed362a96b066f341ce66ed49b4ead"
 dependencies = [
  "data-encoding",
- "syn 1.0.109",
+ "syn 3.0.6",
 ]
 
 [[package]]
@@ -1040,6 +1056,12 @@ dependencies = [
 
 [[package]]
 name = "hashbrown"
+version = "0.12.3"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "8a9ee70c43aaf417c914396645a0fa852624801b24ebb7ae78fe8272889ac888"
+
+[[package]]
+name = "hashbrown"
 version = "0.15.5"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "9229cfe53dfd69f0609a49f65461bd93001ea1ef889cd5529dd176593f5338a1"
@@ -1242,6 +1264,16 @@ dependencies = [
 
 [[package]]
 name = "indexmap"
+version = "1.9.3"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "bd070e393353796e801d209ad339e89596eb4c8d430d18ede6a1cced8fafbd99"
+dependencies = [
+ "autocfg",
+ "hashbrown 0.12.3",
+]
+
+[[package]]
+name = "indexmap"
 version = "2.14.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "cc4e190f5d26ca7051642629da2c52fc03bde85a03197c99408dcd291734c855"
@@ -1386,8 +1418,13 @@ name = "light-cli"
 version = "0.25.0-alpha.1"
 dependencies = [
  "anyhow",
+ "bincode",
+ "getrandom 0.2.17",
  "light-core",
+ "neptune-p2p",
+ "num-traits",
  "rayon",
+ "serde",
  "serde_json",
  "ureq",
 ]
@@ -1648,6 +1685,27 @@ dependencies = [
 ]
 
 [[package]]
+name = "neptune-mempool"
+version = "0.20.1"
+dependencies = [
+ "anyhow",
+ "bytesize",
+ "get-size2",
+ "itertools",
+ "neptune-consensus",
+ "neptune-mutator-set",
+ "neptune-primitives",
+ "neptune-rpc-api",
+ "num-rational",
+ "num-traits",
+ "priority-queue",
+ "serde",
+ "strum",
+ "tasm-lib",
+ "tracing",
+]
+
+[[package]]
 name = "neptune-mutator-set"
 version = "0.20.1"
 dependencies = [
@@ -1662,6 +1720,33 @@ dependencies = [
  "serde_arrays",
  "tasm-lib",
  "thiserror 1.0.69",
+]
+
+[[package]]
+name = "neptune-p2p"
+version = "0.20.1"
+dependencies = [
+ "anyhow",
+ "arraystring",
+ "itertools",
+ "libp2p-identity",
+ "multiaddr",
+ "multihash",
+ "neptune-consensus",
+ "neptune-mempool",
+ "neptune-mutator-set",
+ "neptune-primitives",
+ "num-bigint",
+ "num-traits",
+ "rand 0.10.3",
+ "rayon",
+ "semver",
+ "serde",
+ "sha2 0.10.9",
+ "strum",
+ "tasm-lib",
+ "thiserror 1.0.69",
+ "tracing",
 ]
 
 [[package]]
@@ -2016,6 +2101,16 @@ checksum = "479ca8adacdd7ce8f1fb39ce9ecccbfe93a3f1344b3d0d97f20bc0196208f62b"
 dependencies = [
  "proc-macro2",
  "syn 2.0.119",
+]
+
+[[package]]
+name = "priority-queue"
+version = "1.4.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "a0bda9164fe05bc9225752d54aae413343c36f684380005398a6a8fde95fe785"
+dependencies = [
+ "autocfg",
+ "indexmap 1.9.3",
 ]
 
 [[package]]
@@ -2789,7 +2884,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "32497e9a4c7b38532efcdebeef879707aa9f794296a4f0244f6f69e9bc8574bd"
 dependencies = [
  "fastrand",
- "getrandom 0.3.4",
+ "getrandom 0.4.3",
  "once_cell",
  "rustix",
  "windows-sys 0.61.2",
@@ -3002,7 +3097,7 @@ dependencies = [
  "arbitrary",
  "colored",
  "get-size2",
- "indexmap",
+ "indexmap 2.14.2",
  "itertools",
  "lazy_static",
  "memory-stats",

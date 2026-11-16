@@ -1,6 +1,6 @@
 [package]
 name = "light-cli"
-description = "Native test harness for light-core: sync, balance, address and send against a public node, without a browser."
+description = "Command-line companion: light node (Neptune peer network, no RPC server), archive snapshots, and a test harness for light-core."
 version.workspace = true
 edition.workspace = true
 license.workspace = true
@@ -16,3 +16,8 @@ anyhow.workspace = true
 serde_json.workspace = true
 ureq = "2.10"
 rayon = "1.10"
+neptune-p2p = { path = "../../vendor/neptune-core/neptune-p2p" }
+bincode.workspace = true
+serde.workspace = true
+getrandom = "0.2"
+num-traits = "0.2"

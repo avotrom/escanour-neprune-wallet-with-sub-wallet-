@@ -1,6 +1,6 @@
 # Escanour Neptune Wallet 0.25.0 — Full node mode, three sub-wallets
 
-**New in 0.25:** one build with an optional Full node mode (Settings > Full node): the wallet checks the chain's recursive zk-STARK proof and keeps the archival mutator set, which can be loaded from a snapshot made with `neptune-light archive-export` on your own node. Settings were reorganised and trimmed. See [docs/FULL-NODE.md](docs/FULL-NODE.md) and [RELEASE-0.25.0.md](RELEASE-0.25.0.md). Neptune pin: v0.20.1.
+**New in 0.25:** one build with an optional Full node mode (Settings > Full node): the wallet checks the chain's recursive zk-STARK proof and keeps the archival mutator set, which can be loaded from a snapshot made with `neptune-light archive-export` on your own node. A **Node on this Mac** page starts a light node (Neptune peers only, no RPC server) or neptune-core, and the wallet syncs from it. Settings were reorganised and trimmed. See [docs/NODE.md](docs/NODE.md), [docs/FULL-NODE.md](docs/FULL-NODE.md) and [RELEASE-0.25.0.md](RELEASE-0.25.0.md). Neptune pin: v0.20.1.
 
 Standard is created by default. Create Auto-refresh or Encrypted only when wanted. Each sub-wallet has its own balance, Generation and EC Hybrid addresses, activity and change. Auto-refresh advances after confirmed payments locally; Encrypted adds a hidden receiver notification and optional message on test networks.
 
